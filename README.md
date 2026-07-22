@@ -1,11 +1,15 @@
 # BISONN
-Biotic Interactions with Sage Observations using Neural Networks (BISONN)
+## Biotic Interactions with Sage Observations using Neural Networks (BISONN)
+
+<br/>
 
 ## Initial Sage Grande Testbed (SGT) Workshop Goals
 - Develop a proof of concept example to monitor biotic interactions using AI
 - Build and test simple classificaiton heads for BioCLIP or other foundation model to quantify biotic interactions
 - Compare performance of these classificaiton heads and of the base BioCLIP embeddings for quantifying biotic interactions
 - Publish the best model to the SGT at the edge
+
+<br/>
 
 ## Long Term Goals
 - Improve latency issues by applying models at the edge with Sage Grande Testbed
