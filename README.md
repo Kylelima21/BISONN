@@ -1,2 +1,2 @@
 # BISONN
-Biotic Interaction Science Observer with Neural Networks (BISONN)
+Biotic Interactions with Sage Observations using Neural Networks (BISONN)
