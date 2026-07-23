@@ -6,18 +6,16 @@
 ## 1. Project Goal
 
 Build a proof-of-concept edge application on a Sage/Waggle Thor node that quantifies
-**biotic interactions** (e.g., bird feeding young) from camera images using BioCLIP embeddings + lightweight classification heads.
+**biotic interactions** (bird mobbing behavior) from camera images using BioCLIP embeddings + lightweight classification heads.
 
 ### Scope
 - **Images only** (no video or audio in phase 1)
 - **Bird images only** — all training and inference images are of birds
-- **Two biotic interaction types**:
-  - **Feeding young**: adult bird bringing food to nestlings or fledglings
-  - **Mobbing**: a group of birds harassing or distracting a predator/threat
-- **Single 3-class model**: `feeding_young` / `mobbing` / `none`
-  - `none` = bird images with no interaction (background class for rejection)
+- **Single interaction type**: **mobbing** (a group of birds harassing or distracting a predator/threat)
+- **Binary classification**: `mobbing` / `none`
+  - `none` = bird images with no mobbing interaction (background class for rejection)
 - **Compare**: raw BioCLIP zero-shot retrieval vs. trained classification heads
-- **Evaluate**: INQUIRE Benchmark (if usable for interaction queries) + custom labeled set
+- **Evaluate**: custom labeled set (iNaturalist + Wikimedia Commons + personal photos)
 
 ### Hardware (this Thor: sgt-thor-1423125006073-H021)
 - JetPack R38.2.1, aarch64, 128GB unified memory
@@ -52,7 +50,7 @@ Build a proof-of-concept edge application on a Sage/Waggle Thor node that quanti
  │  Inference Phase (Sage plugin, runs in WES pod)              │
  │  ┌──────────┐    ┌───────────┐    ┌────────────┐             │
  │  │ Camera   │───►│ BioCLIP   │───►│ Embedding  │             │
- │  │ Snapshot │    │ Encode   │    │  (512-dim)  │             │
+ │  │ Snapshot │    │ Encode    │    │  (512-dim) │             │
  │  └──────────┘    └───────────┘    └─────┬──────┘             │
  │                                    │                         │
  │                    ┌───────────────▼──────────────┐          │
@@ -125,63 +123,60 @@ Build a proof-of-concept edge application on a Sage/Waggle Thor node that quanti
 
 ### Phase 1: Data Acquisition & Labeling
 
-**Goal**: Assemble a labeled image dataset of bird images for the 3-class scheme
-(`feeding_young` / `mobbing` / `none`).
+**Goal**: Assemble a labeled image dataset of bird images for the binary scheme
+(`mobbing` / `none`).
 
 **Note**: All images must be of birds. The `none` class serves as the background
-rejection class (birds with no visible interaction).
+rejection class (birds with no mobbing interaction).
 
-#### 1A. Evaluate the INQUIRE Benchmark
+#### 1A. Data Sources
 
-The INQUIRE benchmark (`sagecontinuum/INQUIRE-Benchmark-small` on HuggingFace)
-is a text-to-image retrieval dataset with 20K images, 250 expert queries, and
-relevance labels. Each image has iNat24 species metadata + GPS coordinates.
+- [x] **iNaturalist** — CC-licensed bird photos via API (text search + taxon filter)
+  - `none` class: searched "perched bird", "bird flying" → ~150 images
+  - `mobbing` class: searched "mobbing", "attacking hawk", "birds harassing", etc.
+    filtered to Aves → ~36 images
+- [x] **Wikimedia Commons** — CC-licensed bird photos via API
+  - `mobbing` class: searched "bird mobbing", "crow mobbing hawk", etc. → ~200 images
+- [x] **Personal photos** (Kyle Lima) — ~1500 personal bird photos
+  - `none` class: bulk of personal photos (birds without mobbing)
+  - `mobbing` class: a few personal mobbing photos
+- [ ] ~~INQUIRE Benchmark~~ — not used (limited mobbing coverage)
 
-INQUIRE is unlikely to have strong coverage for "feeding young" or "mobbing"
-since those are specific behaviors, but may contain some bird images we can
-use as the `none` class or for mining.
+#### 1B. Data Cleanup
 
-- [ ] Load and inspect INQUIRE
-  ```python
-  from datasets import load_dataset
-  ds = load_dataset("sagecontinuum/INQUIRE-Benchmark-small", split="validation")
-  print(ds.features)
-  print(ds[0])  # look at fields: image, query, relevant, category, species_name...
-  ```
-- [ ] Filter INQUIRE queries for bird-related content (any bird images we can use)
-- [ ] **Limitation**: INQUIRE is a *retrieval* benchmark, not a *classification* one.
-  It's great for evaluating raw BioCLIP zero-shot retrieval but doesn't directly
-  provide "interaction type" labels for supervised training. We'll use it for:
-  1. Zero-shot retrieval baseline (raw BioCLIP text→image matching)
-  2. Mining candidate bird images for our `none` class
+- [x] Downloaded 404 images from iNaturalist (150 feeding_young, 104 mobbing, 150 none)
+- [x] Downloaded 236 mobbing images (36 iNaturalist + 200 Wikimedia Commons)
+- [x] Focused on mobbing only — removed feeding_young class
+- [x] User manually cleaned mobbing folder (98 images after review)
+- [x] BioCLIP zero-shot classification cleaned non-bird images from `none` folder
+  (removed 50 images flagged as bones, droppings, mammals, plants, insects)
+- [x] 36 images moved from mobbing to none (reclassified by user)
+- [x] Manifest synced: /home/kylelima21/BISONN/data/manifest_unified.csv
+- [ ] Add personal photos (~1500 images) to dataset — in progress
+- [ ] Re-sync manifest after personal photos are added
 
-#### 1B. Assemble Custom Labeled Interaction Set
+#### 1C. Final Dataset (pre-personal-photos)
 
-For the PoC, we need bird images labeled with **interaction type** (feeding_young,
-mobbing, none). Likely data sources:
-1. **HuggingFace datasets**: search for bird behavior / interaction datasets
-2. **iNaturalist**: mine for images showing feeding or mobbing behavior
-3. **Manual web search**: find labeled images of "bird feeding young" and "bird mobbing"
-4. **Sage node camera data**: existing Sage camera images of outdoor scenes with birds
-5. **INQUIRE images**: pooled bird images for the `none` class
+| Class    | Count | Sources                          |
+|----------|-------|----------------------------------|
+| mobbing  | 98    | Wikimedia Commons (98)           |
+| none     | 135   | iNaturalist (106) + WMC (29)     |
+| TOTAL    | 383   |                                  |
 
-**Recommended for PoC**: ~100-200 images per class:
-  - `feeding_young`: adult bird with food, at nest with nestlings, etc.
-  - `mobbing`: multiple birds gathering around / harassing a predator
-  - `none`: solitary birds, perched birds, flying birds — no interaction
+With personal photos added, expected ~1600+ images total.
 
-- [ ] Set up labeling directory structure
-  ```
-  ~/BISONN/data/
-    raw/               # source images (all birds)
-    labeled/
-      feeding_young/    # bird feeding young (adult + nestlings/fledglings)
-      mobbing/           # birds mobbing a predator
-      none/              # birds with no interaction
-    inquire_subset/    # bird images pulled from INQUIRE for `none` class
-  ```
-- [ ] Download / curate ~100-200 images per class (bird images only)
-- [ ] Create a CSV manifest: `image_path, label, interaction_type, source`
+#### 1D. Directory Structure
+
+```
+~/BISONN/data/
+  labeled/
+    mobbing/          # birds mobbing a predator/threat
+    none/             # birds with no mobbing interaction
+  manifest_unified.csv  # unified manifest with attribution + license
+  manifest_mobbing.csv # mobbing-only manifest
+  manifest.csv         # original manifest (iNaturalist only)
+```
+
 - [ ] Train/test split: 80/20, stratified by class
 
 ---
@@ -198,14 +193,13 @@ mobbing, none). Likely data sources:
   from pathlib import Path
   import json
 
-  # Load BioCLIP 2.5 Huge (ViT-H/14, 1024-dim embeddings, ~1B params)
-  # Run inside nvcr.io/nvidia/pytorch:25.08-py3 container for GPU access
+# Load BioCLIP 2.5 Huge (ViT-H/14, 1024-dim embeddings, ~1B params)
+  # CPU-only on host venv (CUDA_VISIBLE_DEVICES='')
   model, _, preprocess = open_clip.create_model_and_transforms(
       "hf-hub:imageomics/bioclip-2.5-vith14"
   )
   model.eval()
-  if torch.cuda.is_available():
-      model = model.cuda()
+  # No GPU — CPU dev mode. CUDA calls hang on PyPI torch (no Blackwell kernels)
 
   def embed_image(image_path):
       img = preprocess(Image.open(image_path).convert("RGB"))
@@ -232,11 +226,11 @@ mobbing, none). Likely data sources:
   ```python
   tokenizer = open_clip.get_tokenizer("hf-hub:imageomics/bioclip-2.5-vith14")
   prompts = [
-      "a photo of a bird feeding its young",
-      "a photo of a bird bringing food to nestlings",
-      "a photo of a bird at a nest with chicks",
       "a photo of birds mobbing a predator",
       "a photo of a flock of birds harassing a threat",
+      "a photo of small birds attacking a larger bird",
+      "a photo of crows mobbing a hawk",
+      "a photo of songbirds mobbing an owl",
       "a photo of a solitary bird perched",
       "a photo of a bird flying with no interaction",
       "a photo of a bird with no visible interaction",
@@ -292,7 +286,7 @@ mobbing, none). Likely data sources:
       nn.Linear(1024, 256),  # 1024 = BioCLIP 2.5 Huge embedding dim
       nn.ReLU(),
       nn.Dropout(0.3),
-      nn.Linear(256, 3)  # 3 classes: feeding_young, mobbing, none
+      nn.Linear(256, 2)  # 2 classes: mobbing, none
   )
   # train with cross-entropy loss, Adam, ~20-50 epochs
   ```
@@ -366,7 +360,7 @@ mobbing, none). Likely data sources:
           prediction = predict_interaction(image.data)
           plugin.publish(
               "biotic.interaction.type",
-              str(prediction),  # one of: feeding_young, mobbing, none
+              str(prediction),  # one of: mobbing, none
               timestamp=image.timestamp,
               meta={"model": "bioclip+linear",
                     "confidence": str(confidence)}
@@ -428,7 +422,7 @@ mobbing, none). Likely data sources:
   name: "bisonn"
   version: "0.1.0"
   description: "Biotic Interactions with Sage Observations using Neural Networks"
-  keywords: "biotic,interaction,pollinator,bioclip"
+  keywords: "biotic,interaction,mobbing,bioclip,bird"
   authors: "Kyle Lima"
   collaborators: ""
   funding: ""
@@ -502,14 +496,14 @@ mobbing, none). Likely data sources:
 
 ### Key Questions to Answer
 
-1. How well do raw BioCLIP embeddings separate the three classes
-   (feeding_young, mobbing, none) without any training? (zero-shot baseline)
+1. How well do raw BioCLIP embeddings separate the two classes
+   (mobbing, none) without any training? (zero-shot baseline)
 2. How much does a simple linear probe improve over zero-shot?
 3. Does a non-linear head (MLP) add value over linear, or are the embeddings
    already linearly separable?
-4. Is the approach generalizable to additional interaction types beyond
-   feeding young and mobbing?
-5. Which interaction type is easier to detect — feeding young or mobbing?
+4. Is the approach generalizable to additional interaction types beyond mobbing?
+5. How well does the classifier handle the class imbalance (few mobbing
+   examples vs many none examples)?
 
 ---
 
