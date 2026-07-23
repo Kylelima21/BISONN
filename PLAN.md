@@ -10,9 +10,14 @@ Build a proof-of-concept edge application on a Sage/Waggle Thor node that quanti
 
 ### Scope
 - **Images only** (no video or audio in phase 1)
-- **Proof of concept**: 1-2 interaction types with labeled training data
+- **Bird images only** — all training and inference images are of birds
+- **Two biotic interaction types**:
+  - **Feeding young**: adult bird bringing food to nestlings or fledglings
+  - **Mobbing**: a group of birds harassing or distracting a predator/threat
+- **Single 3-class model**: `feeding_young` / `mobbing` / `none`
+  - `none` = bird images with no interaction (background class for rejection)
 - **Compare**: raw BioCLIP zero-shot retrieval vs. trained classification heads
-- **Evaluate**: Inquire Benchmark (if usable for interaction queries) + custom labeled set
+- **Evaluate**: INQUIRE Benchmark (if usable for interaction queries) + custom labeled set
 
 ### Hardware (this Thor: sgt-thor-1423125006073-H021)
 - JetPack R38.2.1, aarch64, 128GB unified memory
@@ -90,40 +95,47 @@ Build a proof-of-concept edge application on a Sage/Waggle Thor node that quanti
   ```bash
   pip install "pywaggle[all]==0.56.0"
   ```
-- [ ] Verify BioCLIP loads
+- [ ] Verify BioCLIP 2.5 loads (inside NVIDIA container, not host venv)
   ```python
+  # Load BioCLIP 2.5 Huge (ViT-H/14, 1024-dim embeddings, ~1B params)
+  # Run inside nvcr.io/nvidia/pytorch:25.08-py3 for GPU access
+  # (generic PyPI torch wheels lack Blackwell sm_110 kernels and hang on CUDA init)
   import open_clip
   model, _, preprocess = open_clip.create_model_and_transforms(
-      "hf-hub:imageomics/bioclip"
+      "hf-hub:imageomics/bioclip-2.5-vith14"
   )
-  # or for BioCLIP-2:
-  # model, _, preprocess = open_clip.create_model_and_transforms(
-  #     "hf-hub:imageomics/bioclip-2"
-  # )
-  ```
-- [ ] Verify GPU is accessible from the venv
+  ``[]`
+- [ ] Verify GPU is accessible (inside NVIDIA container, not host venv)
   ```python
+  # Run inside: sudo docker run --rm --gpus all -v ~/BISONN:/app nvcr.io/nvidia/pytorch:25.08-py3 python3 -c "..."
   import torch
   print(torch.cuda.is_available(), torch.cuda.get_device_name(0))
   ```
-  **Pitfall**: On Tegra/Thor, `torch.cuda.is_available()` may return False
-  when run from the host Python without proper device permissions. If so,
-  testing must happen inside a `pluginctl` pod (the WES stack provides
-  `/dev/nvmap` and GPU device access). The training phase can still run
-  on CPU if needed — BioCLIP inference is ~500ms/image on GPU, slower
-  on CPU but acceptable for offline training on a small PoC dataset.
+  **Pitfall (confirmed on this Thor)**: Generic PyPI torch wheels (2.13.0+cu130)
+  lack Blackwell sm_110 CUDA kernels. torch imports but `torch.cuda.is_available()`
+  and any `.cuda()` call HANGS indefinitely on the host. The NVIDIA container
+  `nvcr.io/nvidia/pytorch:25.08-py3` ships torch 2.8 with sm_110/sm_121 support.
+  All GPU work must happen inside that container (or a plugin built from it).
 
 ---
 
 ### Phase 1: Data Acquisition & Labeling
 
-**Goal**: Assemble a labeled image dataset for 1-2 biotic interaction types.
+**Goal**: Assemble a labeled image dataset of bird images for the 3-class scheme
+(`feeding_young` / `mobbing` / `none`).
+
+**Note**: All images must be of birds. The `none` class serves as the background
+rejection class (birds with no visible interaction).
 
 #### 1A. Evaluate the INQUIRE Benchmark
 
 The INQUIRE benchmark (`sagecontinuum/INQUIRE-Benchmark-small` on HuggingFace)
 is a text-to-image retrieval dataset with 20K images, 250 expert queries, and
 relevance labels. Each image has iNat24 species metadata + GPS coordinates.
+
+INQUIRE is unlikely to have strong coverage for "feeding young" or "mobbing"
+since those are specific behaviors, but may contain some bird images we can
+use as the `none` class or for mining.
 
 - [ ] Load and inspect INQUIRE
   ```python
@@ -132,56 +144,41 @@ relevance labels. Each image has iNat24 species metadata + GPS coordinates.
   print(ds.features)
   print(ds[0])  # look at fields: image, query, relevant, category, species_name...
   ```
-- [ ] Filter INQUIRE queries for biotic interaction relevance
-  - INQUIRE queries are expert naturalists' text queries ("find images of X doing Y")
-  - Some queries may describe interactions (e.g., "bird on flower", "insect pollinating")
-  - These can be used as **text-based zero-shot retrieval baselines**
-  - The `relevant` field (0/1) provides ground truth for retrieval evaluation
+- [ ] Filter INQUIRE queries for bird-related content (any bird images we can use)
 - [ ] **Limitation**: INQUIRE is a *retrieval* benchmark, not a *classification* one.
   It's great for evaluating raw BioCLIP zero-shot retrieval but doesn't directly
   provide "interaction type" labels for supervised training. We'll use it for:
   1. Zero-shot retrieval baseline (raw BioCLIP text→image matching)
-  2. Mining candidate images for our custom labeled set (filter by query + relevant)
+  2. Mining candidate bird images for our `none` class
 
 #### 1B. Assemble Custom Labeled Interaction Set
 
-For the PoC, we need images labeled with **interaction type** (not just species).
-INQUIRE images have species labels but not interaction labels. Options:
+For the PoC, we need bird images labeled with **interaction type** (feeding_young,
+mobbing, none). Likely data sources:
+1. **HuggingFace datasets**: search for bird behavior / interaction datasets
+2. **iNaturalist**: mine for images showing feeding or mobbing behavior
+3. **Manual web search**: find labeled images of "bird feeding young" and "bird mobbing"
+4. **Sage node camera data**: existing Sage camera images of outdoor scenes with birds
+5. **INQUIRE images**: pooled bird images for the `none` class
 
-1. **Manual labeling from INQUIRE images**: Browse relevant images from
-   interaction-themed queries, label each as "interaction present" / "no interaction"
-   / specific interaction type.
-
-2. **External datasets**: Search HuggingFace / iNaturalist for datasets with
-   co-occurrence or interaction annotations.
-   - `leonelgv/pollinator-insects-dataset` (419 downloads) — pollinator insects
-   - iNat24 (the base for INQUIRE) has species + location metadata
-   - Could mine for images where a pollinator species + flowering plant co-occur
-     in the same frame
-
-3. **Sage node camera data**: Use existing Sage camera images from nodes that
-   capture outdoor scenes. Label a small set manually.
-
-**Recommended for PoC**: Start with ~100-200 manually labeled images for 1-2
-interaction types:
-  - **Type A**: "Pollinator on flower" (bee/butterfly/fly on a flower)
-  - **Type B**: "No interaction" (empty flower, solitary bird, etc.)
-  - Binary classifier: interaction / no-interaction
+**Recommended for PoC**: ~100-200 images per class:
+  - `feeding_young`: adult bird with food, at nest with nestlings, etc.
+  - `mobbing`: multiple birds gathering around / harassing a predator
+  - `none`: solitary birds, perched birds, flying birds — no interaction
 
 - [ ] Set up labeling directory structure
   ```
   ~/BISONN/data/
-    raw/               # source images
+    raw/               # source images (all birds)
     labeled/
-      pollinator_on_flower/
-        positive/      # images showing pollinator on flower
-        negative/      # images of flowers without pollinators
-      [optional: second interaction type]
-    inquire_subset/    # images pulled from INQUIRE for our subset
+      feeding_young/    # bird feeding young (adult + nestlings/fledglings)
+      mobbing/           # birds mobbing a predator
+      none/              # birds with no interaction
+    inquire_subset/    # bird images pulled from INQUIRE for `none` class
   ```
-- [ ] Download / curate ~100-200 images per class
+- [ ] Download / curate ~100-200 images per class (bird images only)
 - [ ] Create a CSV manifest: `image_path, label, interaction_type, source`
-- [ ] Train/test split: 80/20, stratified by interaction type
+- [ ] Train/test split: 80/20, stratified by class
 
 ---
 
@@ -197,9 +194,10 @@ interaction types:
   from pathlib import Path
   import json
 
-  # Load BioCLIP (start with original; upgrade to BioCLIP-2 if VRAM allows)
+  # Load BioCLIP 2.5 Huge (ViT-H/14, 1024-dim embeddings, ~1B params)
+  # Run inside nvcr.io/nvidia/pytorch:25.08-py3 container for GPU access
   model, _, preprocess = open_clip.create_model_and_transforms(
-      "hf-hub:imageomics/bioclip"
+      "hf-hub:imageomics/bioclip-2.5-vith14"
   )
   model.eval()
   if torch.cuda.is_available():
@@ -228,13 +226,16 @@ interaction types:
 - [ ] Save embeddings + labels as `.npy` files
 - [ ] Also extract text embeddings for interaction-type prompts (zero-shot baseline)
   ```python
-  tokenizer = open_clip.get_tokenizer("hf-hub:imageomics/bioclip")
+  tokenizer = open_clip.get_tokenizer("hf-hub:imageomics/bioclip-2.5-vith14")
   prompts = [
-      "a photo of an insect pollinating a flower",
-      "a photo of a flower with no insect on it",
-      "a bee on a flower",
-      "a butterfly on a flower",
-      "an empty flower",
+      "a photo of a bird feeding its young",
+      "a photo of a bird bringing food to nestlings",
+      "a photo of a bird at a nest with chicks",
+      "a photo of birds mobbing a predator",
+      "a photo of a flock of birds harassing a threat",
+      "a photo of a solitary bird perched",
+      "a photo of a bird flying with no interaction",
+      "a photo of a bird with no visible interaction",
   ]
   with torch.no_grad():
       text_tokens = tokenizer(prompts)
@@ -284,10 +285,10 @@ interaction types:
   ```python
   import torch.nn as nn
   mlp = nn.Sequential(
-      nn.Linear(512, 256),  # 512 = BioCLIP embedding dim
+      nn.Linear(1024, 256),  # 1024 = BioCLIP 2.5 Huge embedding dim
       nn.ReLU(),
       nn.Dropout(0.3),
-      nn.Linear(256, num_classes)
+      nn.Linear(256, 3)  # 3 classes: feeding_young, mobbing, none
   )
   # train with cross-entropy loss, Adam, ~20-50 epochs
   ```
@@ -340,9 +341,10 @@ interaction types:
   from waggle.plugin import Plugin
   from waggle.data.vision import Camera
 
-  # Load models (from baked-in paths, no network)
+  # Load BioCLIP 2.5 Huge (ViT-H/14, 1024-dim embeddings)
+  # Weights baked into image at build time (HF download at build, offline at runtime)
   model, _, preprocess = open_clip.create_model_and_transforms(
-      "hf-hub:imageomics/bioclip"
+      "hf-hub:imageomics/bioclip-2.5-vith14"
   )
   classifier = joblib.load("/app/models/classifier.joblib")
 
@@ -360,7 +362,7 @@ interaction types:
           prediction = predict_interaction(image.data)
           plugin.publish(
               "biotic.interaction.type",
-              str(prediction),
+              str(prediction),  # one of: feeding_young, mobbing, none
               timestamp=image.timestamp,
               meta={"model": "bioclip+linear",
                     "confidence": str(confidence)}
@@ -374,31 +376,47 @@ interaction types:
       main()
   ```
 
-- [ ] Write `Dockerfile`
+- [ ] Write `Dockerfile` (NVIDIA base for Blackwell GPU support)
   ```dockerfile
-  FROM docker.io/waggle/sage-thor-base:0.1.0
+  # NVIDIA PyTorch 25.08 — CUDA 13.0, PyTorch 2.8, Python 3.12
+  # Supports Thor (Blackwell sm_110). Generic PyPI torch lacks these kernels.
+  FROM nvcr.io/nvidia/pytorch:25.08-py3
 
   WORKDIR /app
-
   COPY requirements.txt .
-  RUN pip3 install --no-cache-dir -r requirements.txt
 
-  # Bake model weights at build time
+  # CRITICAL: Freeze base image packages so pip cannot replace them.
+  # The NVIDIA base ships torch/torchvision/numpy compiled for Blackwell GPUs.
+  # pip install of open_clip etc. will try to pull generic PyPI versions
+  # that LACK GPU kernels or break ABI. Freeze them as constraints.
+  RUN pip install --no-cache-dir --upgrade pip && \
+      TORCH_VER=$(python3 -c "import torch; print(torch.__version__)") && \
+      TV_VER=$(python3 -c "import torchvision; print(torchvision.__version__)") && \
+      NP_VER=$(python3 -c "import numpy; print(numpy.__version__)") && \
+      echo "Freezing: torch==${TORCH_VER} torchvision==${TV_VER} numpy==${NP_VER}" && \
+      printf "torch==${TORCH_VER}\ntorchvision==${TV_VER}\nnumpy==${NP_VER}\n" > /tmp/constraints.txt && \
+      pip install --no-cache-dir -c /tmp/constraints.txt -r requirements.txt
+
+  # Pre-download BioCLIP 2.5 weights at build time (edge nodes may lack internet)
+  RUN python3 -c "import open_clip; open_clip.create_model_and_transforms('hf-hub:imageomics/bioclip-2.5-vith14')"
+
+  # Bake classifier weights
   COPY models/ /app/models/
 
+  # Copy app code LAST (small, changes often)
   COPY app.py .
   ENTRYPOINT ["python3", "app.py"]
   ```
 
-- [ ] Write `requirements.txt`
-  ```
+- [ ] Write `requirements.txt` (torch/torchvision/numpy come from the NVIDIA base — frozen, not pip-installed)
+  ```txt
+  # torch, torchvision, numpy are FROZEN from the NVIDIA base image (do NOT pin here)
   pywaggle[all]==0.56.0
   open_clip_torch>=2.20.0
-  timm==1.0.15
+  timm>=1.0.15
   scikit-learn
   joblib
   pillow
-  numpy
   ```
 
 - [ ] Write `sage.yaml`
@@ -480,13 +498,14 @@ interaction types:
 
 ### Key Questions to Answer
 
-1. How well do raw BioCLIP embeddings separate "interaction" from "no interaction"
-   without any training? (zero-shot baseline)
+1. How well do raw BioCLIP embeddings separate the three classes
+   (feeding_young, mobbing, none) without any training? (zero-shot baseline)
 2. How much does a simple linear probe improve over zero-shot?
 3. Does a non-linear head (MLP) add value over linear, or are the embeddings
    already linearly separable?
-4. Is the approach generalizable? (test on a second interaction type if data allows)
-5. Can we use INQUIRE queries as a proxy for interaction detection?
+4. Is the approach generalizable to additional interaction types beyond
+   feeding young and mobbing?
+5. Which interaction type is easier to detect — feeding young or mobbing?
 
 ---
 
@@ -507,11 +526,13 @@ interaction types:
 
 ## 6. Key References
 
-- **BioCLIP**: `imageomics/bioclip` (ViT-B/16, TreeOfLife-10M) on HuggingFace
-- **BioCLIP-2**: `imageomics/bioclip-2` (SigLIP2, 430M params, better accuracy)
-- **BioCLIP 2.5 Huge**: `imageomics/bioclip-2.5-vith14` (ViT-H/14, ~1B params, 61.3% species accuracy)
+- **BioCLIP**: `imageomics/bioclip` (ViT-B/16, TreeOfLife-10M, 512-dim) on HuggingFace
+- **BioCLIP-2**: `imageomics/bioclip-2` (SigLIP2, 430M params, 512-dim)
+- **BioCLIP 2.5 Huge** (selected for BISONN): `imageomics/bioclip-2.5-vith14`
+  (ViT-H/14, ~1B params, 1024-dim embeddings, 61.3% species accuracy, TreeOfLife-200M)
 - **pybioclip**: Python wrapper for BioCLIP taxonomy classification
 - **INQUIRE Benchmark**: `sagecontinuum/INQUIRE-Benchmark-small` (20K images, 250 expert queries)
+- **NVIDIA PyTorch base**: `nvcr.io/nvidia/pytorch:25.08-py3` (CUDA 13.0, PyTorch 2.8, sm_110/sm_121)
 - **Sage pluginctl**: build and test plugins on Thor nodes
 - **pywaggle**: `Plugin`, `Camera`, `upload_file` — the Sage edge SDK
 - **waggle/sage-thor-base**: Docker base image for Thor plugins
