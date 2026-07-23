@@ -31,41 +31,41 @@ Build a proof-of-concept edge application on a Sage/Waggle Thor node that quanti
 ```
                          BISONN Plugin Pipeline
  ┌──────────────────────────────────────────────────────────────┐
- │                                                                │
- │  Training Phase (offline, on Thor host or dev machine)         │
- │  ┌──────────┐    ┌───────────┐    ┌────────────┐              │
- │  │ Labeled  │───►│ BioCLIP   │───►│ Embeddings │              │
- │  │ Images   │    │ Encoder  │    │  (.npy)    │              │
- │  └──────────┘    └───────────┘    └─────┬──────┘              │
- │                                         │                      │
- │                              ┌──────────▼──────────┐           │
- │                              │  Classification     │           │
- │                              │  Head Training      │           │
- │                              │  (sklearn / torch)  │           │
- │                              └──────────┬──────────┘           │
- │                                         │                      │
- │                              ┌──────────▼──────────┐           │
- │                              │  Trained Head       │           │
- │                              │  (model weights)    │           │
- │                              └─────────────────────┘           │
- │                                                                │
- │  Inference Phase (Sage plugin, runs in WES pod)                 │
- │  ┌──────────┐    ┌───────────┐    ┌────────────┐               │
- │  │ Camera   │───►│ BioCLIP   │───►│ Embedding  │               │
- │  │ Snapshot │    │ Encode   │    │  (512-dim)  │               │
- │  └──────────┘    └───────────┘    └─────┬──────┘               │
- │                                    │                            │
- │                    ┌───────────────▼──────────────┐             │
- │                    │ Classification Head          │             │
- │                    │ (linear / kNN / small MLP)  │             │
- │                    └───────────────┬──────────────┘             │
- │                                    │                            │
- │                    ┌───────────────▼──────────────┐             │
- │                    │ plugin.publish()             │             │
- │                    │ plugin.upload_file()         │             │
- │                    │ → Beehive → Sage data API    │             │
- │                    └──────────────────────────────┘             │
- │                                                                │
+ │                                                              │
+ │  Training Phase (offline, on Thor host or dev machine)       │
+ │  ┌──────────┐    ┌───────────┐    ┌────────────┐             │
+ │  │ Labeled  │───►│ BioCLIP   │───►│ Embeddings │             │
+ │  │ Images   │    │ Encoder   │    │  (.npy)    │             │
+ │  └──────────┘    └───────────┘    └─────┬──────┘             │
+ │                                         │                    │
+ │                              ┌──────────▼──────────┐         │
+ │                              │  Classification     │         │
+ │                              │  Head Training      │         │
+ │                              │  (sklearn / torch)  │         │
+ │                              └──────────┬──────────┘         │
+ │                                         │                    │
+ │                              ┌──────────▼──────────┐         │
+ │                              │  Trained Head       │         │
+ │                              │  (model weights)    │         │
+ │                              └─────────────────────┘         │
+ │                                                              │
+ │  Inference Phase (Sage plugin, runs in WES pod)              │
+ │  ┌──────────┐    ┌───────────┐    ┌────────────┐             │
+ │  │ Camera   │───►│ BioCLIP   │───►│ Embedding  │             │
+ │  │ Snapshot │    │ Encode   │    │  (512-dim)  │             │
+ │  └──────────┘    └───────────┘    └─────┬──────┘             │
+ │                                    │                         │
+ │                    ┌───────────────▼──────────────┐          │
+ │                    │ Classification Head          │          │
+ │                    │ (linear / kNN / small MLP)   │          │
+ │                    └───────────────┬──────────────┘          │
+ │                                    │                         │
+ │                    ┌───────────────▼──────────────┐          │
+ │                    │ plugin.publish()             │          │
+ │                    │ plugin.upload_file()         │          │
+ │                    │ → Beehive → Sage data API    │          │
+ │                    └──────────────────────────────┘          │
+ │                                                              │
  └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -95,27 +95,31 @@ Build a proof-of-concept edge application on a Sage/Waggle Thor node that quanti
   ```bash
   pip install "pywaggle[all]==0.56.0"
   ```
-- [ ] Verify BioCLIP 2.5 loads (inside NVIDIA container, not host venv)
+- [ ] Verify BioCLIP 2.5 loads on CPU (host venv, CUDA disabled)
   ```python
-  # Load BioCLIP 2.5 Huge (ViT-H/14, 1024-dim embeddings, ~1B params)
-  # Run inside nvcr.io/nvidia/pytorch:25.08-py3 for GPU access
-  # (generic PyPI torch wheels lack Blackwell sm_110 kernels and hang on CUDA init)
+  # CUDA_VISIBLE_DEVICES='' forces CPU — avoids the Blackwell kernel hang
+  # GPU is only needed later for the deployed plugin (Phase 5)
+  import os
+  os.environ['CUDA_VISIBLE_DEVICES'] = ''
   import open_clip
   model, _, preprocess = open_clip.create_model_and_transforms(
       "hf-hub:imageomics/bioclip-2.5-vith14"
   )
-  ``[]`
-- [ ] Verify GPU is accessible (inside NVIDIA container, not host venv)
-  ```python
-  # Run inside: sudo docker run --rm --gpus all -v ~/BISONN:/app nvcr.io/nvidia/pytorch:25.08-py3 python3 -c "..."
-  import torch
-  print(torch.cuda.is_available(), torch.cuda.get_device_name(0))
+  # Verified: model loads in ~42s, 1024-dim embeddings, ~1.7s/image on CPU
   ```
-  **Pitfall (confirmed on this Thor)**: Generic PyPI torch wheels (2.13.0+cu130)
-  lack Blackwell sm_110 CUDA kernels. torch imports but `torch.cuda.is_available()`
-  and any `.cuda()` call HANGS indefinitely on the host. The NVIDIA container
-  `nvcr.io/nvidia/pytorch:25.08-py3` ships torch 2.8 with sm_110/sm_121 support.
-  All GPU work must happen inside that container (or a plugin built from it).
+- [x] Phase 0 status (as of 2026-07-23):
+  - venv at ~/BISONN/venv with all packages installed
+  - BioCLIP 2.5 Huge loads on CPU (CUDA disabled), ~1.7s/image inference
+  - app.py verification script passes
+  - requirements.txt written
+- [ ] ~~Verify GPU is accessible~~ (deferred to Phase 5 — deployment)
+  **Note**: Dev work (Phases 0-3) runs CPU-only on the host venv with
+  `CUDA_VISIBLE_DEVICES=''`. GPU is only needed for the deployed plugin.
+  Generic PyPI torch (2.13.0+cu130) hangs on any CUDA call (no Blackwell
+  sm_110 kernels). The NVIDIA container `nvcr.io/nvidia/pytorch:25.08-py3`
+  (torch 2.8, sm_110/sm_121) is pulled and ready for Phase 5 plugin building.
+  GPU access at deploy time goes through `pluginctl --selector resource.gpu=true`
+  (k3s pod path), not Docker `--runtime=nvidia`.
 
 ---
 
