@@ -1,0 +1,63 @@
+BISONN Phase 3c — Cross-Model Comparison
+Backbones: BioCLIP 2.5, DINOv3 Large, DINOv3 Small
+Methods: logistic regression, linear SVM, kNN (class-weighted, 80/20 stratified, seed=42)
+
+Backbone         Head             Dim Accuracy  MacroF1  Mob F1  None F1
+------------------------------------------------------------------------------------------
+BioCLIP 2.5      Logistic Reg    1024    0.970    0.883   0.783    0.984
+BioCLIP 2.5      Linear SVM      1024    0.985    0.935   0.878    0.992
+BioCLIP 2.5      kNN (k=5)       1024    0.970    0.845   0.706    0.984
+DINOv3 Large     Logistic Reg    1024    0.941    0.792   0.615    0.968
+DINOv3 Large     Linear SVM      1024    0.953    0.821   0.667    0.975
+DINOv3 Large     kNN (k=5)       1024    0.970    0.845   0.706    0.984
+DINOv3 Small     Logistic Reg     384    0.902    0.711   0.476    0.946
+DINOv3 Small     Linear SVM       384    0.956    0.835   0.694    0.976
+DINOv3 Small     kNN (k=5)        384    0.967    0.843   0.703    0.983
+------------------------------------------------------------------------------------------
+
+Best overall: BioCLIP 2.5 + Linear SVM (macroF1=0.935)
+
+BioCLIP 2.5 + Logistic Reg:
+              mobbing     none
+     mobbing       18        2
+        none        8      310
+
+BioCLIP 2.5 + Linear SVM:
+              mobbing     none
+     mobbing       18        2
+        none        3      315
+
+BioCLIP 2.5 + kNN (k=5):
+              mobbing     none
+     mobbing       12        8
+        none        2      316
+
+DINOv3 Large + Logistic Reg:
+              mobbing     none
+     mobbing       16        4
+        none       16      302
+
+DINOv3 Large + Linear SVM:
+              mobbing     none
+     mobbing       16        4
+        none       12      306
+
+DINOv3 Large + kNN (k=5):
+              mobbing     none
+     mobbing       12        8
+        none        2      316
+
+DINOv3 Small + Logistic Reg:
+              mobbing     none
+     mobbing       15        5
+        none       28      290
+
+DINOv3 Small + Linear SVM:
+              mobbing     none
+     mobbing       17        3
+        none       12      306
+
+DINOv3 Small + kNN (k=5):
+              mobbing     none
+     mobbing       13        7
+        none        4      314

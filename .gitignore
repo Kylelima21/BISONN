@@ -222,8 +222,8 @@ venv/
 # Ignore downloaded images, keep small text manifests tracked.
 # Use /data/* (not /data/) so git still descends into the dir;
 # negating inside an already-excluded directory is a no-op in git.
-/data/*
-!/data/*.csv
+/data/labeled
+/data/raw
 
 # Ignore Sage Summer Camp 2026 BioCLIP example used to help inform HERMES
 sage-summer-2026-bioclip-main/

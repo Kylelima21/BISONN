@@ -1,0 +1,90 @@
+{
+  "model": "BioCLIP 2.5",
+  "repo_id": "imageomics/bioclip-2.5-vith14",
+  "prompts": [
+    {
+      "id": "mobbing_000",
+      "class": "mobbing",
+      "text": "a photo of birds mobbing a predator"
+    },
+    {
+      "id": "mobbing_001",
+      "class": "mobbing",
+      "text": "a photo of a flock of birds harassing a threat"
+    },
+    {
+      "id": "mobbing_002",
+      "class": "mobbing",
+      "text": "a photo of small birds attacking a larger bird"
+    },
+    {
+      "id": "mobbing_003",
+      "class": "mobbing",
+      "text": "a photo of crows mobbing a hawk"
+    },
+    {
+      "id": "mobbing_004",
+      "class": "mobbing",
+      "text": "a photo of songbirds mobbing an owl"
+    },
+    {
+      "id": "mobbing_005",
+      "class": "mobbing",
+      "text": "a photo of birds aggressively harassing a raptor"
+    },
+    {
+      "id": "mobbing_006",
+      "class": "mobbing",
+      "text": "a photo of birds gathering around and calling at a predator"
+    },
+    {
+      "id": "mobbing_007",
+      "class": "mobbing",
+      "text": "a photo of birds dive-bombing a larger bird"
+    },
+    {
+      "id": "none_008",
+      "class": "none",
+      "text": "a photo of a solitary bird perched"
+    },
+    {
+      "id": "none_009",
+      "class": "none",
+      "text": "a photo of a bird flying with no interaction"
+    },
+    {
+      "id": "none_010",
+      "class": "none",
+      "text": "a photo of a single bird foraging"
+    },
+    {
+      "id": "none_011",
+      "class": "none",
+      "text": "a photo of a bird standing alone"
+    },
+    {
+      "id": "none_012",
+      "class": "none",
+      "text": "a photo of a bird at rest with no visible interaction"
+    },
+    {
+      "id": "none_013",
+      "class": "none",
+      "text": "a photo of a bird perched on a branch alone"
+    },
+    {
+      "id": "none_014",
+      "class": "none",
+      "text": "a photo of a bird in flight with no other birds nearby"
+    },
+    {
+      "id": "none_015",
+      "class": "none",
+      "text": "a photo of a calm bird with no aggressive behavior"
+    }
+  ],
+  "classes": [
+    "mobbing",
+    "none"
+  ]
+}

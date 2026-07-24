@@ -343,7 +343,7 @@ Two sizes, using timm (non-gated HF repos):
 
 #### Phase 2b: DINOv3 Embedding Extraction
 
-- [ ] Write `scripts/extract_embeddings_dinov3.py`
+- [x] Write `scripts/extract_embeddings_dinov3.py`
   - Accept model name as argument (large or small)
   - Use `timm.create_model(name, pretrained=True, num_classes=0)`
   - Use `timm.data.resolve_model_data_config()` + `timm.data.create_transform()` for preprocessing
@@ -351,49 +351,66 @@ Two sizes, using timm (non-gated HF repos):
   - L2-normalize and save as `EmbeddingBundle` (.npz) — same format as BioCLIP
   - Labels are reused from Phase 2 (same 1690 images, same manifest)
   - Outputs: `data/embeddings_dinov3_large.npz`, `data/embeddings_dinov3_small.npz`
-- [ ] Extract embeddings for DINOv3 Large (1024-dim) — ~300M params on CPU
-- [ ] Extract embeddings for DINOv3 Small (384-dim) — ~22M params on CPU, faster
-- [ ] Verify both bundles (shape, L2-normalized, no NaNs, round-trip load)
+- [x] Extract embeddings for DINOv3 Large (1024-dim) — 1690 images, ~23 min on CPU (~0.8s/image)
+- [x] Extract embeddings for DINOv3 Small (384-dim) — 1690 images, ~6 min on CPU (~0.2s/image)
+- [x] Verify both bundles (shape, L2-normalized, no NaNs, round-trip load)
 
 #### Phase 3b: DINOv3 Classification Head Training
 
-- [ ] Run `scripts/train_and_evaluate.py` adapted for DINOv3 embeddings
+- [x] Write `scripts/train_dinov3.py` (arg: small|large)
   - Same methods: logistic regression, linear SVM, kNN (class-weighted)
   - No zero-shot (DINOv3 has no text encoder)
   - Same 80/20 stratified split, same seed (42) for comparability
   - MLP skipped (same torch CPU issue)
-- [ ] Save models: `data/models/dinov3_large_svm.joblib`, etc.
-- [ ] Save results: `data/results/evaluation_report_dinov3_large.txt`, etc.
+- [x] Train heads on DINOv3 Large — best: kNN (macroF1=0.845, 97.0% acc)
+- [x] Train heads on DINOv3 Small — best: kNN (macroF1=0.843, 96.7% acc)
 
 #### Phase 3c: Cross-Model Comparison
 
-- [ ] Write `scripts/compare_models.py`
-  - Load all evaluation results (BioCLIP 2.5, DINOv3 Large, DINOv3 Small)
-  - Produce a unified comparison table:
-    ```
-    Backbone      Head         Accuracy  MacroF1  Mob F1  None F1
-    BioCLIP 2.5   Linear SVM     0.985    0.935   0.878   0.992
-    DINOv3 Large  Linear SVM     ?        ?       ?       ?
-    DINOv3 Small  Linear SVM     ?        ?       ?       ?
-    ...           LogReg         ...      ...     ...     ...
-    ```
-  - Bar chart comparing macro-F1 across backbones and heads
-  - Confusion matrices side-by-side for best head per backbone
-  - Discussion: which backbone wins? Does DINOv3's self-supervised training
-    beat BioCLIP's bio-taxonomic pretraining for behavior classification?
-- [ ] Save: `data/results/cross_model_comparison.txt`, `data/results/cross_model_comparison.png`
+- [x] Write `scripts/compare_models.py`
+- [x] Run comparison across all 3 backbones x 3 heads (9 combinations):
 
-#### Key Questions to Answer
+  ```
+  Backbone         Head             Dim Accuracy  MacroF1  Mob F1  None F1
+  BioCLIP 2.5      Logistic Reg    1024    0.970    0.883   0.783    0.984
+  BioCLIP 2.5      Linear SVM      1024    0.985    0.935   0.878    0.992
+  BioCLIP 2.5      kNN (k=5)       1024    0.970    0.845   0.706    0.984
+  DINOv3 Large     Logistic Reg    1024    0.941    0.792   0.615    0.968
+  DINOv3 Large     Linear SVM      1024    0.953    0.821   0.667    0.975
+  DINOv3 Large     kNN (k=5)       1024    0.970    0.845   0.706    0.984
+  DINOv3 Small     Logistic Reg     384    0.902    0.711   0.476    0.946
+  DINOv3 Small     Linear SVM       384    0.956    0.835   0.694    0.976
+  DINOv3 Small     kNN (k=5)        384    0.967    0.843   0.703    0.983
+  ```
 
-1. Does DINOv3 (self-supervised, general) outperform BioCLIP 2.5 (biology-taxed)
-   on a BEHAVIOR task? BioCLIP's pretraining is taxonomic — it may not help
-   for mobbing vs. none.
-2. Does the larger DINOv3 (1024-dim, 300M params) justify the extra cost over
-   the small variant (384-dim, 22M params) for edge deployment?
-3. Is BioCLIP's zero-shot text retrieval handicap (44.9% accuracy) relevant
-   when supervised heads achieve >97% regardless of backbone?
-4. Which backbone+head combination is the best deploy choice for a Sage/Waggle
-   edge plugin considering accuracy, model size, and inference latency?
+- [x] Best overall: BioCLIP 2.5 + Linear SVM (macroF1=0.935, 98.5% accuracy)
+- [x] Saved: `data/results/cross_model_comparison.txt`, `data/results/cross_model_comparison.png`
+
+#### Key Findings
+
+1. **BioCLIP 2.5 wins** (0.935 macro-F1 with Linear SVM). DINOv3 Large's best
+   (0.845 with kNN) is 9 points lower. DINOv3 Small's best (0.843 with kNN)
+   matches Large despite being 14x smaller.
+2. **DINOv3 Large does NOT justify its cost** over Small for this task. Both
+   achieve the same ~0.845 macro-F1, but Large requires 300M params (23 min
+   extraction) vs Small's 22M params (6 min extraction). For edge deployment,
+   Small is the clear choice if DINOv3 is used.
+3. **BioCLIP's taxonomic pretraining helps for behavior classification**.
+   Despite BioCLIP being trained on species captions (not behaviors), its
+   visual features separate mobbing from non-mobbing better than DINOv3's
+   self-supervised features. This suggests bird images have taxonomic-visual
+   cues correlated with behavior context.
+4. **kNN is surprisingly competitive for DINOv3** (0.845 for both sizes) but
+   not for BioCLIP (0.845 vs SVM's 0.935). DINOv3's embedding space has
+   tighter local structure from self-supervised contrastive training, which
+   kNN exploits. But the linear SVM in BioCLIP space finds a better global
+   separation.
+5. **DINOv3's mobbing recall is acceptable** (80% for SVM, 60% for kNN) but
+   its mobbing PRECISION is the weakness — many false positives. BioCLIP's
+   Linear SVM achieves 85.7% mobbing precision at 90% recall.
+6. **Best deploy choice**: BioCLIP 2.5 + Linear SVM. Best accuracy (98.5%),
+   best mobbing F1 (0.878), and the SVM model file is 1.7MB — trivially small
+   to bake into a Sage plugin alongside the BioCLIP weights.
 
 ---
 

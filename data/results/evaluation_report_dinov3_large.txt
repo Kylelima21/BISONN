@@ -1,0 +1,61 @@
+BISONN Phase 3b — DINOv3 Large Classification Head Evaluation
+Date: 2026-07-24 19:26
+Backbone: DINOv3 Large (timm, frozen)
+Embedding dim: 1024
+Dataset: 1690 images (101 mobbing + 1589 none)
+Split: 80/20 stratified (seed=42)
+Class weighting: balanced (inverse frequency)
+
+Method           Accuracy  MacroF1  Mob P  Mob R Mob F1 None P None R None F1
+--------------------------------------------------------------------------------
+Logistic Reg        0.941    0.792  0.500  0.800  0.615  0.987  0.950  0.968
+Linear SVM          0.953    0.821  0.571  0.800  0.667  0.987  0.962  0.975
+kNN (k=5)           0.970    0.845  0.857  0.600  0.706  0.975  0.994  0.984
+--------------------------------------------------------------------------------
+
+Best: kNN (k=5) (macroF1=0.845)
+
+Logistic Reg confusion matrix (rows=actual, cols=predicted):
+              mobbing     none
+     mobbing       16        4
+        none       16      302
+
+Logistic Reg — classification report:
+              precision    recall  f1-score   support
+
+     mobbing       0.50      0.80      0.62        20
+        none       0.99      0.95      0.97       318
+
+    accuracy                           0.94       338
+   macro avg       0.74      0.87      0.79       338
+weighted avg       0.96      0.94      0.95       338
+
+Linear SVM confusion matrix (rows=actual, cols=predicted):
+              mobbing     none
+     mobbing       16        4
+        none       12      306
+
+Linear SVM — classification report:
+              precision    recall  f1-score   support
+
+     mobbing       0.57      0.80      0.67        20
+        none       0.99      0.96      0.97       318
+
+    accuracy                           0.95       338
+   macro avg       0.78      0.88      0.82       338
+weighted avg       0.96      0.95      0.96       338
+
+kNN (k=5) confusion matrix (rows=actual, cols=predicted):
+              mobbing     none
+     mobbing       12        8
+        none        2      316
+
+kNN (k=5) — classification report:
+              precision    recall  f1-score   support
+
+     mobbing       0.86      0.60      0.71        20
+        none       0.98      0.99      0.98       318
+
+    accuracy                           0.97       338
+   macro avg       0.92      0.80      0.85       338
+weighted avg       0.97      0.97      0.97       338

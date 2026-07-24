@@ -159,7 +159,7 @@ def main():
         f.write(f"\nBest overall: {best_entry[0]} + {best_entry[1]} (macroF1={best_f1:.3f})\n")
 
         # Confusion matrices
-        for bb_name, head_name, y_true, y_pred, _, _ in results:
+        for bb_name, head_name, y_true, y_pred, _ in results:
             cm = confusion_matrix(y_true, y_pred)
             f.write(f"\n{bb_name} + {head_name}:\n")
             f.write(f"  {'':>10} {'mobbing':>8} {'none':>8}\n")
