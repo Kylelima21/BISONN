@@ -234,7 +234,7 @@ text prompts, saved as portable artifacts for downstream training and evaluation
 
 ---
 
-### Phase 3: Train Classification Heads
+### Phase 3: Train Classification Heads (BioCLIP 2.5)
 
 **Goal**: Train simple classifiers on frozen BioCLIP 2.5 embeddings and compare.
 
@@ -316,6 +316,84 @@ text prompts, saved as portable artifacts for downstream training and evaluation
 - **MLP deferred**: torch CPU matmul hangs on this host (Blackwell CUDA init
   bug). Can be run in an NVIDIA container. The linear SVM's 0.935 macro-F1
   is likely hard to beat with a 2-layer MLP on 1024-dim embeddings anyway.
+
+---
+
+### Phase 3-DINOv3: DINOv3 Embedding Extraction + Head Training
+
+**Goal**: Repeat the Phase 2-3 pipeline with DINOv3 replacing BioCLIP, then
+compare all models head-to-head. DINOv3 is a self-supervised vision transformer
+(no text encoder, no CLIP-style training) — it cannot do zero-shot text-image
+retrieval, but its visual features may be stronger for supervised classification.
+
+#### DINOv3 Model Selection
+
+Two sizes, using timm (non-gated HF repos):
+
+| Model | timm name | HF repo | Embedding dim | Params | Input size |
+|-------|-----------|---------|---------------|--------|------------|
+| DINOv3 Large | `vit_large_patch16_dinov3_qkvb` | `timm/vit_large_patch16_dinov3_qkvb.lvd1689m` | 1024 | ~300M | 256x256 |
+| DINOv3 Small | `vit_small_patch16_dinov3_qkvb` | `timm/vit_small_patch16_dinov3_qkvb.lvd1689m` | 384 | ~22M | 256x256 |
+
+- Large matches BioCLIP 2.5's 1024-dim for a direct head-to-head comparison
+- Small tests whether a lightweight edge model suffices for this task
+- Both use the `qkvb` variant (qkv-bias fused, the recommended DINOv3 form)
+- DINOv3 uses ImageNet normalization (mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
+- DINOv3 has NO text encoder — zero-shot retrieval is not applicable
+
+#### Phase 2b: DINOv3 Embedding Extraction
+
+- [ ] Write `scripts/extract_embeddings_dinov3.py`
+  - Accept model name as argument (large or small)
+  - Use `timm.create_model(name, pretrained=True, num_classes=0)`
+  - Use `timm.data.resolve_model_data_config()` + `timm.data.create_transform()` for preprocessing
+  - Extract pooled features via `model.forward_head(model.forward_features(x), pre_logits=True)`
+  - L2-normalize and save as `EmbeddingBundle` (.npz) — same format as BioCLIP
+  - Labels are reused from Phase 2 (same 1690 images, same manifest)
+  - Outputs: `data/embeddings_dinov3_large.npz`, `data/embeddings_dinov3_small.npz`
+- [ ] Extract embeddings for DINOv3 Large (1024-dim) — ~300M params on CPU
+- [ ] Extract embeddings for DINOv3 Small (384-dim) — ~22M params on CPU, faster
+- [ ] Verify both bundles (shape, L2-normalized, no NaNs, round-trip load)
+
+#### Phase 3b: DINOv3 Classification Head Training
+
+- [ ] Run `scripts/train_and_evaluate.py` adapted for DINOv3 embeddings
+  - Same methods: logistic regression, linear SVM, kNN (class-weighted)
+  - No zero-shot (DINOv3 has no text encoder)
+  - Same 80/20 stratified split, same seed (42) for comparability
+  - MLP skipped (same torch CPU issue)
+- [ ] Save models: `data/models/dinov3_large_svm.joblib`, etc.
+- [ ] Save results: `data/results/evaluation_report_dinov3_large.txt`, etc.
+
+#### Phase 3c: Cross-Model Comparison
+
+- [ ] Write `scripts/compare_models.py`
+  - Load all evaluation results (BioCLIP 2.5, DINOv3 Large, DINOv3 Small)
+  - Produce a unified comparison table:
+    ```
+    Backbone      Head         Accuracy  MacroF1  Mob F1  None F1
+    BioCLIP 2.5   Linear SVM     0.985    0.935   0.878   0.992
+    DINOv3 Large  Linear SVM     ?        ?       ?       ?
+    DINOv3 Small  Linear SVM     ?        ?       ?       ?
+    ...           LogReg         ...      ...     ...     ...
+    ```
+  - Bar chart comparing macro-F1 across backbones and heads
+  - Confusion matrices side-by-side for best head per backbone
+  - Discussion: which backbone wins? Does DINOv3's self-supervised training
+    beat BioCLIP's bio-taxonomic pretraining for behavior classification?
+- [ ] Save: `data/results/cross_model_comparison.txt`, `data/results/cross_model_comparison.png`
+
+#### Key Questions to Answer
+
+1. Does DINOv3 (self-supervised, general) outperform BioCLIP 2.5 (biology-taxed)
+   on a BEHAVIOR task? BioCLIP's pretraining is taxonomic — it may not help
+   for mobbing vs. none.
+2. Does the larger DINOv3 (1024-dim, 300M params) justify the extra cost over
+   the small variant (384-dim, 22M params) for edge deployment?
+3. Is BioCLIP's zero-shot text retrieval handicap (44.9% accuracy) relevant
+   when supervised heads achieve >97% regardless of backbone?
+4. Which backbone+head combination is the best deploy choice for a Sage/Waggle
+   edge plugin considering accuracy, model size, and inference latency?
 
 ---
 
