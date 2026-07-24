@@ -19,10 +19,14 @@ LABELED_DIR = DATA_DIR / "labeled"
 
 CLASSES = ["feeding_young", "mobbing", "none"]
 
+# Only these extensions are images we care about
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff"}
+
 # Read both existing manifests for metadata lookup
 MANIFESTS = [
     DATA_DIR / "manifest.csv",
     DATA_DIR / "manifest_mobbing.csv",
+    DATA_DIR / "manifest_unified.csv",  # pick up metadata from previous run
 ]
 
 
@@ -49,6 +53,10 @@ def parse_filename(filename):
       mobbing_wiki_10201920.jpg
       none_402766047.jpg
       none_wiki_134071783.jpg
+      # Flickr-style descriptive names (personal photos / WMC batch 2):
+      none_accipiter-cooperii---coopers-hawk_27633331108_o.jpg
+      mobbing_buteo-albonotatus---zone-tailed-hawk-and-corvus-cryptoleucus---chihuahuan-raven_55190237223_o.jpg
+      none_american-crow_15054929199_o.jpg
     """
     stem = Path(filename).stem
     ext = Path(filename).suffix
@@ -65,10 +73,18 @@ def parse_filename(filename):
     if m:
         return "none", "wikimedia", m.group(1)
 
-    # feeding_young_ID or none_ID
-    m = re.match(r"(feeding_young|none)_(\d+)", stem)
+    # feeding_young_ID or none_ID (numeric only, no descriptive part)
+    m = re.match(r"(feeding_young|none)_(\d+)$", stem)
     if m:
         return m.group(1), "inaturalist", m.group(2)
+
+    # Flickr-style descriptive names:
+    # <class>_<descriptive-slug>_<flickr_id>_o
+    # The slug can contain digits, hyphens, and --- separators.
+    # The Flickr photo_id is the last numeric group before _o suffix.
+    m = re.match(r"(mobbing|none|feeding_young)_.+?(\d+)_o$", stem)
+    if m:
+        return m.group(1), "personal", m.group(2)
 
     return None, None, None
 
@@ -93,7 +109,9 @@ def main():
         folder = LABELED_DIR / cls
         if not folder.exists():
             continue
-        images = sorted(folder.glob("*"))
+        images = sorted(
+            f for f in folder.glob("*") if f.suffix.lower() in IMAGE_EXTS
+        )
         found = 0
         missing_meta = 0
 

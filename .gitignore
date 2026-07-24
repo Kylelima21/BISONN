@@ -224,3 +224,6 @@ venv/
 # negating inside an already-excluded directory is a no-op in git.
 /data/*
 !/data/*.csv
+
+# Ignore Sage Summer Camp 2026 BioCLIP example used to help inform HERMES
+sage-summer-2026-bioclip-main/

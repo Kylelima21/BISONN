@@ -152,18 +152,22 @@ rejection class (birds with no mobbing interaction).
   (removed 50 images flagged as bones, droppings, mammals, plants, insects)
 - [x] 36 images moved from mobbing to none (reclassified by user)
 - [x] Manifest synced: /home/kylelima21/BISONN/data/manifest_unified.csv
-- [ ] Add personal photos (~1500 images) to dataset — in progress
-- [ ] Re-sync manifest after personal photos are added
+- [x] Add personal photos (~1485 images) to dataset — done
+- [x] Re-sync manifest after personal photos are added — done
 
-#### 1C. Final Dataset (pre-personal-photos)
+#### 1C. Final Dataset (with personal photos)
 
-| Class    | Count | Sources                          |
-|----------|-------|----------------------------------|
-| mobbing  | 98    | Wikimedia Commons (98)           |
-| none     | 135   | iNaturalist (106) + WMC (29)     |
-| TOTAL    | 383   |                                  |
+| Class    | Count | Sources                                        |
+|----------|-------|------------------------------------------------|
+| mobbing  | 101   | Wikimedia Commons (98) + personal (3)          |
+| none     | 1589  | iNaturalist (78) + WMC (29) + personal (1482)  |
+| TOTAL    | 1690  |                                                |
 
-With personal photos added, expected ~1600+ images total.
+Personal photos use Flickr-style descriptive filenames (e.g.,
+`none_accipiter-cooperii---coopers-hawk_27633331108_o.jpg`).
+One `.mov` video in `none/` was excluded from the image manifest.
+Class imbalance is significant: 101 mobbing vs 1589 none — will
+need class-weighted training or balanced sampling in Phase 3.
 
 #### 1D. Directory Structure
 
