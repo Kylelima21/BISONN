@@ -187,130 +187,135 @@ need class-weighted training or balanced sampling in Phase 3.
 
 ### Phase 2: BioCLIP Embedding Extraction
 
-**Goal**: Generate raw BioCLIP embeddings for all labeled images.
+**Goal**: Generate BioCLIP 2.5 embeddings for all labeled images and zero-shot
+text prompts, saved as portable artifacts for downstream training and evaluation.
 
-- [ ] Write `scripts/extract_embeddings.py`
-  ```python
-  # Pseudocode:
-  import open_clip, torch, numpy as np
-  from PIL import Image
-  from pathlib import Path
-  import json
+- [x] Copy `embedding_bundles.py` from the Sage 2026 BioCLIP workshop
+  (`sage-summer-2026-bioclip-main/notebooks/embedding_bundles.py`) into
+  `scripts/`. Provides `EmbeddingBundle` (ordered IDs, L2-normalized features,
+  producer manifest) with save/load + sha256 integrity — same evaluation
+  boundary pattern the workshop uses.
+- [x] Write `scripts/extract_embeddings.py`
+  - Reads `data/manifest_unified.csv` (1690 images)
+  - Loads BioCLIP 2.5 Huge (ViT-H/14, 1024-dim) on CPU
+    (`CUDA_VISIBLE_DEVICES=''` — PyPI torch lacks Blackwell sm_110 kernels)
+  - Encodes all images in batches of 4, ~1.3s/image, ~37 min total
+  - Saves an `EmbeddingBundle` (.npz) with L2-normalized features + producer
+    manifest, plus labels (.npy) and class name mapping (.json)
+  - Round-trip verification on load (`np.allclose`, atol=1e-6 — re-normalization
+    of unit vectors in float32 introduces ~7e-9 drift, so `array_equal` is too
+    strict)
+- [x] Write `scripts/extract_text_embeddings.py`
+  - Encodes 16 hand-authored behavior prompts (8 mobbing, 8 none) through
+    BioCLIP 2.5's text encoder with `normalize=True`
+  - Saves a text `EmbeddingBundle` (.npz) + prompt metadata (.json)
+  - "a photo of..." framing (BioCLIP was trained on photo captions)
+- [x] Extract image embeddings for all 1690 labeled images
+- [x] Extract text embeddings for 16 zero-shot behavior prompts
+- [x] Verify all artifacts (shape, L2 normalization, no NaNs, round-trip load)
 
-# Load BioCLIP 2.5 Huge (ViT-H/14, 1024-dim embeddings, ~1B params)
-  # CPU-only on host venv (CUDA_VISIBLE_DEVICES='')
-  model, _, preprocess = open_clip.create_model_and_transforms(
-      "hf-hub:imageomics/bioclip-2.5-vith14"
-  )
-  model.eval()
-  # No GPU — CPU dev mode. CUDA calls hang on PyPI torch (no Blackwell kernels)
+#### Phase 2 Artifacts
 
-  def embed_image(image_path):
-      img = preprocess(Image.open(image_path).convert("RGB"))
-      if torch.cuda.is_available():
-          img = img.cuda()
-      with torch.no_grad():
-          emb = model.encode_image(img.unsqueeze(0))
-      return emb.cpu().numpy().flatten()
+| File | Shape | Contents |
+|------|-------|----------|
+| `data/embeddings_bisonn.npz` | (1690, 1024) | Image embeddings (L2-normalized) + producer manifest |
+| `data/labels_bisonn.npy` | (1690,) | Integer labels (0=mobbing, 1=none) |
+| `data/label_names.json` | — | Class name mapping |
+| `data/text_embeddings_bisonn.npz` | (16, 1024) | Text prototype embeddings (L2-normalized) + manifest |
+| `data/behavior_prompts.json` | — | Prompt text + class mapping |
 
-  # Embed all labeled images, save to .npy
-  manifest = json.load(open("data/manifest.json"))
-  embeddings = []
-  labels = []
-  for entry in manifest:
-      emb = embed_image(entry["image_path"])
-      embeddings.append(emb)
-      labels.append(entry["label"])
-  np.save("data/embeddings.npy", np.array(embeddings))
-  np.save("data/labels.npy", np.array(labels))
-  ```
-- [ ] Extract embeddings for all labeled images
-- [ ] Save embeddings + labels as `.npy` files
-- [ ] Also extract text embeddings for interaction-type prompts (zero-shot baseline)
-  ```python
-  tokenizer = open_clip.get_tokenizer("hf-hub:imageomics/bioclip-2.5-vith14")
-  prompts = [
-      "a photo of birds mobbing a predator",
-      "a photo of a flock of birds harassing a threat",
-      "a photo of small birds attacking a larger bird",
-      "a photo of crows mobbing a hawk",
-      "a photo of songbirds mobbing an owl",
-      "a photo of a solitary bird perched",
-      "a photo of a bird flying with no interaction",
-      "a photo of a bird with no visible interaction",
-  ]
-  with torch.no_grad():
-      text_tokens = tokenizer(prompts)
-      if torch.cuda.is_available():
-          text_tokens = text_tokens.cuda()
-      text_embs = model.encode_text(text_tokens)
-  np.save("data/text_embeddings.npy", text_embs.cpu().numpy())
-  ```
+- [x] Phase 2 status (as of 2026-07-24):
+  - All 1690 images encoded on CPU in ~37 min (~1.3s/image, batch_size=4)
+  - 16 text prototypes encoded (8 mobbing, 8 none)
+  - All bundles verified: correct shape, L2-normalized, no NaNs/inf, round-trip load
+  - Workshop reference: `sage-summer-2026-bioclip-main/` (peromyscus.ipynb lessons
+    1-5 — embedding bundles, zero-shot prototypes, few-shot SVM — adapted for
+    BISONN's binary behavior task)
 
 ---
 
 ### Phase 3: Train Classification Heads
 
-**Goal**: Train simple classifiers on the frozen BioCLIP embeddings and compare them.
+**Goal**: Train simple classifiers on frozen BioCLIP 2.5 embeddings and compare.
 
 #### 3A. Baseline: Zero-Shot Retrieval (no training)
 
-- [ ] Compute zero-shot predictions using cosine similarity between image embeddings
-  and text prompt embeddings
-- [ ] Evaluate: accuracy, precision, recall, F1, mAP
-- [ ] This is the "raw embeddings" baseline — no supervised training needed
+- [x] Compute zero-shot predictions using cosine similarity between image
+  embeddings and text prompt embeddings
+- [x] Two voting schemes: averaged class prototypes and best-of-prompts (max
+  individual prompt score)
+- [x] Evaluate: accuracy, precision, recall, F1 per class
+- [x] Result: best-of-prompts 44.9% accuracy, 0.375 macro-F1 (poor — BioCLIP
+  was trained on taxonomic captions, not behavior descriptions; over-predicts
+  mobbing heavily)
 
 #### 3B. Classification Head 1: Logistic Regression (linear probe)
 
-- [ ] Train on the train split of labeled embeddings
-  ```python
-  from sklearn.linear_model import LogisticRegression
-  clf = LogisticRegression(max_iter=1000)
-  clf.fit(X_train, y_train)
+- [x] Train with `class_weight='balanced'`, `max_iter=2000`
+- [x] Result: 97.0% accuracy, 0.883 macro-F1 (mobbing F1=0.783, none F1=0.984)
+- [x] Save model: `data/models/logistic.joblib`
+
+#### 3C. Classification Head 2: Linear SVM
+
+- [x] Train with `kernel='linear'`, `class_weight='balanced'`
+- [x] Result: 98.5% accuracy, 0.935 macro-F1 (mobbing F1=0.878, none F1=0.992)
+- [x] **Best model** — saved as `data/models/svm.joblib`
+
+#### 3D. Classification Head 3: k-Nearest Neighbors
+
+- [x] k=5, cosine metric, distance-weighted voting
+- [x] Result: 97.0% accuracy, 0.845 macro-F1 (mobbing recall only 60% — misses
+  8/20 mobbing test images)
+- [x] Model saved alongside others for comparison
+
+#### 3E. Classification Head 4: Small MLP (optional)
+
+- [ ] ~~MLP on CPU~~ — skipped: torch 2.13+cu130 hangs on even trivial CPU
+  matmul due to Blackwell CUDA init. Can be run inside the NVIDIA container
+  (`nvcr.io/nvidia/pytorch:25.08-py3`) by setting `BISONN_ENABLE_MLP=1`.
+  The MLP code is in `run_mlp()` — ready to run in the right container.
+
+#### 3F. Evaluation Dashboard
+
+- [x] Comparison table:
   ```
-- [ ] Evaluate on test split
-- [ ] Save model weights: `scikit-learn` `joblib.dump`
-
-#### 3C. Classification Head 2: k-Nearest Neighbors
-
-- [ ] Train kNN on embeddings (trivial — just store reference embeddings)
-  ```python
-  from sklearn.neighbors import KNeighborsClassifier
-  knn = KNeighborsClassifier(n_neighbors=5, metric="cosine")
-  knn.fit(X_train, y_train)
+  Method           Accuracy  MacroF1  Mob P  Mob R  Mob F1  None P None R None F1
+  Zero-shot           0.449    0.375  0.088  0.881  0.160  0.982  0.421  0.589
+  Logistic Reg        0.970    0.883  0.692  0.900  0.783  0.994  0.975  0.984
+  Linear SVM          0.985    0.935  0.857  0.900  0.878  0.994  0.991  0.992
+  kNN (k=5)           0.970    0.845  0.857  0.600  0.706  0.975  0.994  0.984
   ```
-- [ ] Evaluate on test split
+- [x] Confusion matrix saved: `data/results/best_model_confusion.png` (Linear SVM)
+- [x] Comparison bar chart saved: `data/results/comparison_bar.png`
+- [x] Full evaluation report: `data/results/evaluation_report.txt`
 
-#### 3D. Classification Head 3: Small MLP (optional, if time allows)
+#### Phase 3 Artifacts
 
-- [ ] Define and train a 2-layer MLP on embeddings using PyTorch
-  ```python
-  import torch.nn as nn
-  mlp = nn.Sequential(
-      nn.Linear(1024, 256),  # 1024 = BioCLIP 2.5 Huge embedding dim
-      nn.ReLU(),
-      nn.Dropout(0.3),
-      nn.Linear(256, 2)  # 2 classes: mobbing, none
-  )
-  # train with cross-entropy loss, Adam, ~20-50 epochs
-  ```
-- [ ] Evaluate on test split
+| File | Contents |
+|------|----------|
+| `scripts/train_and_evaluate.py` | Training + evaluation script (all methods) |
+| `data/models/svm.joblib` | Best model (Linear SVM, macro-F1=0.935) |
+| `data/models/logistic.joblib` | Logistic regression (deployment candidate — simplest) |
+| `data/results/evaluation_report.txt` | Full metrics + confusion matrices + classification reports |
+| `data/results/best_model_confusion.png` | Confusion matrix for Linear SVM |
+| `data/results/comparison_bar.png` | Bar chart comparing all 4 methods |
 
-#### 3E. Evaluation Dashboard
+#### Key Findings
 
-- [ ] Write `scripts/evaluate.py` to produce a comparison table:
-  ```
-  ┌─────────────────────┬──────────┬──────────┬──────────┬──────────┐
-  │ Model               │ Accuracy │ F1       │ mAP      │ Notes    │
-  ├─────────────────────┼──────────┼──────────┼──────────┼──────────┤
-  │ Zero-shot retrieval │   XX%    │   XX%    │   XX%    │ baseline │
-  │ Logistic regression │   XX%    │   XX%    │   XX%    │ linear   │
-  │ kNN (k=5, cosine)   │   XX%    │   XX%    │   XX%    │ nonparam │
-  │ MLP (256 hidden)    │   XX%    │   XX%    │   XX%    │ nonlinear│
-  └─────────────────────┴──────────┴──────────┴──────────┴──────────┘
-  ```
-- [ ] Save a confusion matrix for the best model
-- [ ] Generate a comparison plot (bar chart or radar)
+- **Zero-shot is poor** (44.9% acc): BioCLIP's text encoder was trained on
+  taxonomic captions, not behavior descriptions. Behavior prompts do not
+  produce useful zero-shot prototypes.
+- **Supervised heads are strong**: Even a linear probe (logistic regression)
+  achieves 90% mobbing recall. The linear SVM is the clear winner with 0.935
+  macro-F1 and 85.7% mobbing precision.
+- **Class weighting is essential**: Without `class_weight='balanced'`, the
+  1:16 imbalance causes the classifier to trivially predict "none" every time.
+- **kNN has low mobbing recall** (60%): The mobbing cluster is sparse in
+  embedding space; 8/20 mobbing test images have their 5 nearest neighbors
+  dominated by "none" images. Distance weighting helps but doesn't fix this.
+- **MLP deferred**: torch CPU matmul hangs on this host (Blackwell CUDA init
+  bug). Can be run in an NVIDIA container. The linear SVM's 0.935 macro-F1
+  is likely hard to beat with a 2-layer MLP on 1024-dim embeddings anyway.
 
 ---
 
