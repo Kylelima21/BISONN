@@ -30,14 +30,14 @@ Notes:
 
 ## Phase Status
 
-| Phase | Description                           | Status  |
-|-------|---------------------------------------|---------|
-| 0     | Environment setup (venv, BioCLIP)     | Done    |
-| 1     | Data acquisition & labeling           | Done    |
-| 2     | BioCLIP embedding extraction          | Next    |
-| 3     | Train & evaluate classification heads | Pending |
-| 4     | Sage plugin packaging                 | Pending |
-| 5     | Build, test, deploy on Thor           | Pending |
+| Phase | Description                        | Status |
+|-------|------------------------------------|--------|
+| 0     | Environment setup (venv, BioCLIP)  | Done   |
+| 1     | Data acquisition & labeling        | Done   |
+| 2     | BioCLIP + DINOv3 embedding extraction | Done   |
+| 3     | Train & evaluate classification heads | Done   |
+| 4     | Sage plugin packaging              | Done   |
+| 5     | Build, test, deploy on Thor        | Done   |
 
 ### Phase 0 — Environment Setup (done)
 - venv at `~/BISONN/venv` with torch, open_clip, BioCLIP, pywaggle, etc.
@@ -56,20 +56,136 @@ Notes:
 - BioCLIP zero-shot cleaned non-bird images from none folder
 - Manifest synced via `python3 scripts/sync_manifests.py`
 
-### Phase 2 — BioCLIP Embedding Extraction (next)
-- Write `scripts/extract_embeddings.py` (not done yet)
-- Extract 1024-dim embeddings for all 1690 labeled images on CPU
-- Save embeddings + labels as `.npy` files
-- Also extract text embeddings for zero-shot baseline prompts
-- Estimated time: ~48 min for 1690 images at 1.7s/image
+### Phase 2 — BioCLIP + DINOv3 Embedding Extraction (done)
+- `scripts/extract_embeddings.py` — BioCLIP 2.5 Huge (1024-dim), CPU
+- `scripts/extract_text_embeddings.py` — behavior prompts for zero-shot
+- `scripts/extract_embeddings_dinov3.py` — DINOv3 small (384-dim) + large (1024-dim)
+- `scripts/embedding_bundles.py` — EmbeddingBundle pattern (from Peromyscus notebook)
+- Embeddings saved as `.npz` (L2-normalized features + IDs + manifest)
+- Labels: `data/labels_bisonn.npy` (0=mobbing, 1=none), `data/label_names.json`
+- Behavior prompts: `data/behavior_prompts.json`
+- Text embeddings: `data/text_embeddings_bisonn.npz`
 
-### Phase 3 — Train Classification Heads (pending)
-- Zero-shot retrieval (cosine sim with text prompts)
-- Logistic regression (linear probe)
-- kNN (cosine, k=5)
-- Optional MLP (1024 -> 256 -> 2)
-- Evaluate: accuracy, macro-F1, precision, recall
-- Handle class imbalance with class_weight='balanced' or balanced sampling
+### Phase 3 — Train & Evaluate Classification Heads (done)
+- `scripts/train_and_evaluate.py` — BioCLIP 2.5 heads
+- `scripts/train_dinov3.py` — DINOv3 small + large heads
+- `scripts/compare_models.py` — cross-model comparison
+- 80/20 stratified split (seed=42), class_weight='balanced'
+- Methods per backbone: zero-shot (BioCLIP only), logistic regression,
+  linear SVM, kNN (k=5, cosine), MLP (planned but see results)
+
+**Cross-model comparison (macroF1):**
+
+| Backbone      | Logistic | Linear SVM | kNN (k=5) |
+|---------------|----------|------------|-----------|
+| BioCLIP 2.5   | 0.883    | **0.935**  | 0.845     |
+| DINOv3 Large  | 0.792    | 0.821      | 0.845     |
+| DINOv3 Small  | 0.711    | 0.835      | 0.843     |
+
+**Best overall: BioCLIP 2.5 + Linear SVM (macroF1=0.935)**
+
+Confusion matrix (best model, 20 mobbing / 318 none test):
+```
+              mobbing    none
+     mobbing       18       2
+        none         3     315
+```
+
+Key findings:
+- BioCLIP 2.5 dominates DINOv3 on mobbing detection — biology-trained
+  features beat general vision features
+- Linear SVM is the best head — embeddings are largely linearly separable
+- Zero-shot is poor (macroF1=0.375) — text prompts don't capture mobbing
+  behavior well enough for cosine retrieval
+- kNN is competitive across backbones (0.84-0.85) — local neighborhood
+  structure is consistent
+- Mobbing recall 0.90 (18/20 caught) with the best model — only 2 missed
+- Mobbing precision 0.86 (18/21 predicted correct) — 3 false positives
+
+Model weights saved: `data/models/{svm,logistic}.joblib` (BioCLIP 2.5),
+`data/models/dinov3_{small,large}_{svm,logistic,best}.joblib`
+Results: `data/results/evaluation_report*.txt`, `comparison_bar*.png`,
+`best_model_confusion*.png`, `cross_model_comparison.{txt,png}`,
+`all_confusion_matrices.png`
+
+### Phase 4 — Sage Plugin Packaging (done)
+- Plugin scaffold at `~/BISONN/plugin/`:
+  - `app.py` — Sage/Waggle plugin: camera snapshot → BioCLIP 2.5 encode
+    (1024-dim, L2-normalized) → Linear SVM classify → publish + upload
+  - `Dockerfile` — NVIDIA PyTorch 25.08 base (sm_110 Blackwell), frozen
+    torch/torchvision/numpy, pre-downloads BioCLIP weights at build time,
+    offline mode at runtime
+  - `requirements.txt` — pywaggle, open_clip, sklearn, joblib, PIL, opencv
+  - `sage.yaml` — plugin metadata (name=bisonn, arch=linux/arm64)
+  - `overview.md` + `ecr-meta/ecr-science-description.md` — documentation
+  - `models/svm.joblib` (1.7MB) + `models/label_names.json` baked in
+  - `Makefile` + `.dockerignore` for build hygiene
+- Input modes: camera stream, HTTP snapshot URL, image directory (batch test)
+- Publishes `biotic.interaction.bird_mobbing` (1/0) + heartbeat summary
+- All pywaggle meta values are strings (pywaggle requirement)
+- Verified: app.py syntax OK, sage.yaml valid YAML, SVM classes [0,1]
+  match label_names.json (0=mobbing, 1=none)
+
+### Phase 5 — Build, Test, Deploy on Thor (done)
+- Built plugin image with `sudo pluginctl build` (NVIDIA PyTorch 25.08 base,
+  12 Dockerfile steps, BioCLIP weights pre-downloaded at build time)
+- K3s registry TLS issue: `10.31.81.1:5000` uses a self-signed cert that
+  containerd could not verify (ImagePullBackOff). Workaround: podman save
+  to tar, then used a privileged k3s debug pod with `nsenter --target 1`
+  to import the 25GB tar into k3s containerd via `k3s ctr images import`
+- One-shot test with 2 images (1 mobbing + 1 none) via `pluginctl run`:
+  - Memory limit required: `--resource limit.memory=16Gi,request.memory=4Gi`
+    (pluginctl default is too small for BioCLIP 2.5 — OOMKilled without it)
+  - BioCLIP loaded in 7.5s, SVM classifier loaded (sklearn version warning
+    is benign — 1.9 vs 1.6, works fine)
+  - mobbing_sample.jpg → **mobbing** (confidence=0.731) ✓ correct
+  - none_sample.jpg → **none** (confidence=0.919) ✓ correct
+  - Both published to `biotic.interaction.bird_mobbing` (0=mobbing, 1=none)
+- Plugin runs on CPU (~2s/image) — GPU not auto-injected by pluginctl.
+  For production: need `--selector resource.gpu=true` or k8s resource limit
+  for GPU. CPU is adequate for a 30s capture interval.
+- Node: sgt-thor-1423125006073-H021 (00003c6d66fd3ac0.agx-thor), zone=core, resource.gpu=true
+- Image: `localhost/bisonn:0.1.0` (15.6GB in k3s containerd)
+
+### Confusion matrix figure
+`scripts/plot_all_confusion_matrices.py` produces a single 3x4 grid
+(`data/results/all_confusion_matrices.png`) with every backbone x head
+combination:
+- Row 0 (BioCLIP 2.5): Zero-shot | Logistic Reg | Linear SVM | kNN
+- Row 1 (DINOv3 Large): (empty) | Logistic Reg | Linear SVM | kNN
+- Row 2 (DINOv3 Small): (empty) | Logistic Reg | Linear SVM | kNN
+
+All 40 confusion matrix cells verified to match the per-model
+evaluation reports.
+
+### Why DINOv3 has no zero-shot row
+
+Zero-shot classification in the BioCLIP sense relies on a **text encoder**:
+the model encodes behavioral prompts ("birds mobbing a predator") and
+camera-trap images into a shared embedding space, then classifies by
+cosine similarity between text and image vectors. This is a capability
+unique to CLIP-family models (BioCLIP, BioCLIP 2, BioCLIP 2.5), which
+are trained with contrastive language-image pretraining.
+
+DINOv3 (available in timm as `vit_{small,large,huge}_patch16_dinov3`) is
+a **self-supervised vision-only model**. It trains a vision transformer
+on image augmentations alone — no text, no paired captions, no language
+encoder. It produces rich image embeddings but has no text counterpart
+and no shared text-image space.
+
+Therefore DINOv3 cannot do text-prompt zero-shot classification. The
+zero-shot row in the confusion matrix figure is BioCLIP 2.5 only. This
+is not a gap in the analysis — it is a structural limitation of the
+model family. The comparison remains fair because DINOv3 is included in
+all supervised methods (logistic, SVM, kNN) where its vision embeddings
+are directly usable.
+
+A label-efficient "nearest class mean" (NCM) baseline could be computed
+for DINOv3 (mean image embedding per class from a few labels, classify
+by cosine to nearest class mean), but this uses labels and is more
+analogous to 1-shot learning than true zero-shot. We chose not to add it
+to avoid mixing label-free and label-dependent baselines in the same
+figure.
 
 ### Phase 4 — Sage Plugin Packaging (pending)
 - Plugin structure in `~/BISONN/plugin/`

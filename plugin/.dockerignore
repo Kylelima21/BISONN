@@ -1,0 +1,23 @@
+# Keep build context small — exclude everything not needed for the image.
+# The Dockerfile copies explicitly: requirements.txt, models/, app.py.
+# This file prevents accidental bloat (training data, dev venvs, git history).
+
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+*.md
+!overview.md
+test-images/
+venv/
+.venv/
+*.npz
+*.npy
+*.csv
+*.png
+*.jpg
+*.jpeg
+*.MOV
+*.mov
+.ipynb_checkpoints/

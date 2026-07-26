@@ -1,0 +1,9 @@
+# torch, torchvision, numpy are FROZEN from the NVIDIA base image (do NOT pin here).
+# They are constrained in the Dockerfile via /tmp/constraints.txt to prevent pip
+# from pulling generic PyPI wheels that lack Blackwell sm_110 CUDA kernels.
+pywaggle[all]==0.56.0
+open_clip_torch>=2.20.0
+scikit-learn
+joblib
+pillow
+opencv-python-headless>=4.8.0
