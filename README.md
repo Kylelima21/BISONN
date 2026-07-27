@@ -173,6 +173,8 @@ sudo pluginctl logs bisonn-test
 - [Imageomics BioCLIP Workshop](https://github.com/Imageomics/sage-summer-2026-bioclip) — embedding bundle pattern and evaluation methodology
 - [NVIDIA PyTorch Container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch) — Blackwell GPU support for Thor nodes
 
+This work was supported in part by the National Science Foundation under Awards No. 2331263 and 2436842
+
 ## License
 
 MIT
