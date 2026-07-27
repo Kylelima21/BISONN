@@ -18,7 +18,7 @@ Perhaps the greatest remaining challenge in predictive ecology is incorporating 
 
 This project begins to explore the ability of AI to collect biotic interaction data by working with the Sage Grande Testbed and applying a simple example model at the edge. We compare two foundation models (BioCLIP and DINOv3) with a few different classification heads trained on the same data to perform the same task: classify an image to a certain biotic interaction type. We took the top model and published an application on a Sage Node to provide a proof of concept example classifying interactions from images at the edge.
 
-The application, BISONN (Biotic Interactions with Sage Observations using Neural Networks), focuses on detecting bird mobbing behavior, an  anti-predator interaction in which a single or multiple birds harass a predator. Mobbing occurs year-round though it more common during the breeding season, is context-dependent, and difficult to observe systematically, making it an ideal candidate for automated, continuous camera-based detection on distributed environmental sensor nodes.
+The application, BISONN (Biotic Interactions with Sage Observations using Neural Networks), focuses on detecting bird mobbing behavior, an anti-predator interaction in which a single or multiple birds harass a predator. Mobbing occurs year-round though it is more common during the breeding season, is context-dependent, and difficult to observe systematically, making it an ideal candidate for automated, continuous camera-based detection on distributed environmental sensor nodes. In addition to classifying behavior, BISONN also performs zero-shot species identification on each image, leveraging BioCLIP's text encoder to identify which North American bird species are present — a capability that requires no additional training data because BioCLIP was explicitly trained on species captions.
 
 Sage/Waggle is an edge computing platform that deploys containerized plugins on networked environmental sensor nodes (Thors). Each node runs k3s/Kubernetes and can be equipped with cameras, microphones, and other sensors. Plugins process sensor data locally at the edge and publish results to a cloud data pipeline, enabling real-time monitoring without continuous human oversight.
 
@@ -66,6 +66,20 @@ The `class_weight='balanced'` parameter is critical: without it, the 1:16 class 
 For BioCLIP only, we also evaluated **zero-shot retrieval** — classifying each image by cosine similarity to the encoded behavior text prompts (no training data required). Two voting schemes were tested: averaged class prototypes and best-of-prompts (max individual prompt score).
 
 All models were evaluated on an 80/20 stratified train/test split (seed=42), with the same split used across all backbones for comparability.
+
+### Species Identification
+
+Behavior classification and species identification are fundamentally different tasks for BioCLIP. The zero-shot evaluation above demonstrated that behavior prompts fail (44.9% accuracy) because BioCLIP's text encoder was trained on taxonomic captions, not behavior descriptions. However, species identification is the task BioCLIP was *explicitly* trained on via TreeOfLife-200M — it should excel here without any supervised training.
+
+We curated a list of 30 North American bird species as text prompts, selected to cover the species most relevant to mobbing interactions:
+
+- **Corvids** (frequent mobbers): American Crow, Common Raven, Blue Jay, Steller's Jay, Black-billed Magpie, Fish Crow
+- **Raptors** (frequent mobbing targets): Red-tailed Hawk, Cooper's Hawk, Sharp-shinned Hawk, Broad-winged Hawk, Great Horned Owl, Barred Owl, Eastern Screech-Owl, Northern Saw-whet Owl, Peregrine Falcon, American Kestrel, Bald Eagle, Turkey Vulture, Zone-tailed Hawk
+- **Songbirds** (common mobbing participants): Black-capped Chickadee, Tufted Titmouse, Red-breasted Nuthatch, White-breasted Nuthatch, Downy Woodpecker, Northern Cardinal, American Robin, Gray Catbird, Common Grackle, Red-winged Blackbird
+
+Each species name is encoded as a text prompt using the "a photo of a \<species\>" framing to match BioCLIP's training format. At inference time, the image embedding is compared against all 30 species text embeddings via cosine similarity (both are L2-normalized, so the dot product equals cosine similarity). The top-3 species and their similarity scores are published alongside the behavior classification.
+
+This zero-shot approach requires no labeled species data and no training — the species list can be extended or modified by simply editing the prompt list, making it adaptable to different regions or research questions.
 
 ### Results
 
@@ -173,6 +187,6 @@ The plugin publishes three Sage data topics per capture cycle:
 
 ## Future Directions
 
-The long-term goals are to integrate multiple sensors (acoustic recording units, video, image) to monitor for interactions more effectively and to develop a more powerful, well trained version of this application to classify more types of biotic interactions. We would also like to scale data collection across the SGT network as well as integrate this with NEON sites.
+The long-term goals are to integrate multiple sensors (acoustic recording units, video, image) to monitor for interactions more effectively and to develop a more powerful, well trained version of this application to classify more types of biotic interactions. We would also like to scale data collection across the SGT network as well as integrate with NEON sites. The current 30-species list for zero-shot identification is curated for North American mobbing contexts and can be easily extended to cover additional species by editing the text prompt list in the plugin code — no retraining is required, only a container rebuild.
 
 

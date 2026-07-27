@@ -79,6 +79,61 @@ For Reolink cameras, credentials go in the URL query string
 `--env-from <credsfile>` with `CAMERA_USER` / `CAMERA_PASSWORD` environment
 variables. Never hardcode credentials in job YAML or command-line arguments.
 
+## Using This Plugin
+
+BISONN runs on any Sage/Waggle Thor node with a connected camera. It does not
+require internet access at runtime — all model weights are baked into the
+container image at build time.
+
+**Quick test (batch mode, no camera needed):**
+
+```bash
+# Build the image (from the plugin/ directory)
+cd ~/BISONN/plugin/
+sudo pluginctl build .
+
+# Run a one-shot test against the bundled sample images
+sudo pluginctl run --name bisonn-test \
+  --resource limit.memory=16Gi,request.memory=4Gi \
+  <image-ref> -- --image-dir /app/test-images --continuous N
+
+# View the predictions in the logs
+sudo pluginctl logs bisonn-test
+```
+
+**Live camera (continuous):**
+
+```bash
+sudo pluginctl run --name bisonn-live \
+  --resource limit.memory=16Gi,request.memory=4Gi \
+  --selector resource.gpu=true \
+  <image-ref> -- --stream bottom_camera --continuous Y --interval 30
+```
+
+**HTTP snapshot (Reolink cameras):**
+
+```bash
+sudo pluginctl run --name bisonn-cam \
+  --resource limit.memory=16Gi,request.memory=4Gi \
+  <image-ref> -- \
+  --snapshot-url "http://CAMERA_IP/cgi-bin/api.cgi?cmd=Snap&user=USER&password=PASS" \
+  --continuous Y --interval 30
+```
+
+**Reading the output:**
+- `biotic.interaction.bird_mobbing` — 1 (mobbing detected) or 0 (none)
+- `biotic.species.bird` — top-3 species with cosine similarity scores
+- Annotated images are uploaded with behavior + species overlays for visual review
+
+**Extending the species list:** Edit the `SPECIES_PROMPTS` list in `app.py` to
+add or remove species. Prompts use the format `"a photo of a <species>"` to
+match BioCLIP's training captions. Rebuild the image after changing the list.
+
+**Retraining the behavior classifier:** Use `scripts/train_and_evaluate.py`
+with your own labeled images. Place images in `data/labeled/mobbing/` and
+`data/labeled/none/`, regenerate embeddings with `scripts/extract_embeddings.py`,
+then train. Replace `models/svm.joblib` in the plugin directory and rebuild.
+
 ## License
 
 MIT
