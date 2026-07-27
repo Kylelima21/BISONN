@@ -4,8 +4,7 @@
 
 BISONN (Biotic Interactions with Sage Observations using Neural Networks)
 demonstrates automated detection of bird mobbing behavior — a widespread but
-understudied anti-predator interaction in which multiple birds harass or
-distract a predator — using edge-deployed computer vision on Sage/Waggle
+understudied anti-predator interaction in which multiple birds harass a predator — using edge-deployed computer vision on Sage/Waggle
 environmental sensor nodes. In addition to behavior classification, the plugin
 performs zero-shot species identification on each image, leveraging BioCLIP's
 text encoder to identify which North American bird species are present.
