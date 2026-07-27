@@ -34,8 +34,9 @@ to a curated list of 30 North American bird species.
   (corvids, raptors, songbirds — curated for North American mobbing contexts)
 - **Model file**: `models/svm.joblib` (1.7 MB)
 - **Training data**: 1690 labeled bird images (101 mobbing + 1589 none)
-- **Performance**: 98.5% accuracy, 0.935 macro-F1, mobbing F1=0.878
-  (80/20 stratified split, seed=42)
+- **Split**: 75/15/15 stratified (train/val/test, seed=42)
+- **Performance**: 98.8% accuracy, 0.948 macro-F1 (test set), mobbing F1=0.903
+  (val macro-F1=0.965; model selected on validation, reported on held-out test)
 
 ## Topics Published
 

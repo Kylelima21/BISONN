@@ -6,6 +6,9 @@ Runs the same supervised methods (logistic regression, linear SVM, kNN) as
 train_and_evaluate.py but on DINOv3 embeddings instead of BioCLIP.
 No zero-shot (DINOv3 has no text encoder). MLP skipped (torch CPU issue).
 
+Three-way split: 75% train / 15% validation / 15% test.
+Train on train, select best head on validation, report final metrics on test.
+
 Usage:
   CUDA_VISIBLE_DEVICES='' python3 scripts/train_dinov3.py small
   CUDA_VISIBLE_DEVICES='' python3 scripts/train_dinov3.py large
@@ -57,7 +60,8 @@ MODELS_DIR = DATA_DIR / "models"
 LABELS_PATH = DATA_DIR / "labels_bisonn.npy"
 
 RANDOM_SEED = 42
-TEST_SIZE = 0.2
+VAL_SIZE = 0.15 / 0.85  # 15% of total → fraction of the 85% remainder
+TEST_SIZE = 0.15         # 15% of total, held out for final evaluation
 LABEL_NAMES = ["mobbing", "none"]
 
 
@@ -149,83 +153,138 @@ def main():
     print(f"  Labels: mobbing={np.sum(y==0)}, none={np.sum(y==1)}")
     print()
 
-    # 2. Stratified split (same seed as BioCLIP for comparability)
-    X_train, X_test, y_train, y_test = train_test_split(
+    # 2. Stratified three-way split: 75% train / 15% validation / 15% test
+    X_trainval, X_test, y_trainval, y_test = train_test_split(
         X, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_SEED,
     )
-    print(f"Stratified split ({1-TEST_SIZE:.0%}/{TEST_SIZE:.0%}):")
-    print(f"  Train: {len(y_train)} (mobbing={np.sum(y_train==0)}, none={np.sum(y_train==1)})")
-    print(f"  Test:  {len(y_test)} (mobbing={np.sum(y_test==0)}, none={np.sum(y_test==1)})")
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_trainval, y_trainval, test_size=VAL_SIZE, stratify=y_trainval,
+        random_state=RANDOM_SEED,
+    )
+    print(f"Stratified split (75/15/15):")
+    print(f"  Train:      {len(y_train)} (mobbing={np.sum(y_train==0)}, none={np.sum(y_train==1)})")
+    print(f"  Validation: {len(y_val)} (mobbing={np.sum(y_val==0)}, none={np.sum(y_val==1)})")
+    print(f"  Test:       {len(y_test)} (mobbing={np.sum(y_test==0)}, none={np.sum(y_test==1)})")
     print()
 
     method_names = []
-    all_metrics = []
-    all_preds = {}
+    val_metrics = {}
+    val_preds = {}
     models = {}
 
-    # Logistic regression
+    # Logistic regression — train on train, evaluate on val
     print("[1/3] Logistic regression (class-weighted)...")
     lr = LogisticRegression(max_iter=2000, class_weight="balanced", solver="lbfgs", random_state=RANDOM_SEED)
     lr.fit(X_train, y_train)
-    lr_preds = lr.predict(X_test)
-    lr_m = compute_metrics(y_test, lr_preds)
+    lr_preds = lr.predict(X_val)
+    lr_m = compute_metrics(y_val, lr_preds)
     print(f"  {format_metrics(lr_m)}")
-    method_names.append("Logistic Reg"); all_metrics.append(lr_m); all_preds["logistic"] = lr_preds; models["logistic"] = lr
+    method_names.append("Logistic Reg"); val_metrics["logistic"] = lr_m
+    val_preds["logistic"] = lr_preds; models["logistic"] = lr
 
-    # Linear SVM
+    # Linear SVM — train on train, evaluate on val
     print("[2/3] Linear SVM (class-weighted)...")
     svm = SVC(kernel="linear", class_weight="balanced", random_state=RANDOM_SEED)
     svm.fit(X_train, y_train)
-    svm_preds = svm.predict(X_test)
-    svm_m = compute_metrics(y_test, svm_preds)
+    svm_preds = svm.predict(X_val)
+    svm_m = compute_metrics(y_val, svm_preds)
     print(f"  {format_metrics(svm_m)}")
-    method_names.append("Linear SVM"); all_metrics.append(svm_m); all_preds["svm"] = svm_preds; models["svm"] = svm
+    method_names.append("Linear SVM"); val_metrics["svm"] = svm_m
+    val_preds["svm"] = svm_preds; models["svm"] = svm
 
-    # kNN
+    # kNN — train on train, evaluate on val
     print("[3/3] kNN (k=5, cosine, distance-weighted)...")
     knn = KNeighborsClassifier(n_neighbors=5, metric="cosine", weights="distance")
     knn.fit(X_train, y_train)
-    knn_preds = knn.predict(X_test)
-    knn_m = compute_metrics(y_test, knn_preds)
+    knn_preds = knn.predict(X_val)
+    knn_m = compute_metrics(y_val, knn_preds)
     print(f"  {format_metrics(knn_m)}")
-    method_names.append("kNN (k=5)"); all_metrics.append(knn_m); all_preds["knn"] = knn_preds; models["knn"] = knn
+    method_names.append("kNN (k=5)"); val_metrics["knn"] = knn_m
+    val_preds["knn"] = knn_preds; models["knn"] = knn
 
-    # Summary
+    # Summary — validation metrics
     print()
     print("=" * 80)
+    print("VALIDATION SET METRICS (model selection)")
     print(f"{'Method':<16} {'Accuracy':>8} {'MacroF1':>8} "
           f"{'Mob P':>6} {'Mob R':>6} {'Mob F1':>6} "
           f"{'None P':>6} {'None R':>6} {'None F1':>6}")
     print("-" * 80)
-    for name, m in zip(method_names, all_metrics):
+    for name in method_names:
+        key = {"Logistic Reg": "logistic", "Linear SVM": "svm", "kNN (k=5)": "knn"}[name]
+        m = val_metrics[key]
         print(f"{name:<16} {m['accuracy']:>8.3f} {m['macro_f1']:>8.3f} "
               f"{m['mobbing_precision']:>6.3f} {m['mobbing_recall']:>6.3f} {m['mobbing_f1']:>6.3f} "
               f"{m['none_precision']:>6.3f} {m['none_recall']:>6.3f} {m['none_f1']:>6.3f}")
     print("=" * 80)
 
-    # Find best
-    best_idx = np.argmax([m["macro_f1"] for m in all_metrics])
+    # Find best on val
+    keys = ["logistic", "svm", "knn"]
+    best_idx = np.argmax([val_metrics[k]["macro_f1"] for k in keys])
+    best_key = keys[best_idx]
     best_name = method_names[best_idx]
-    best_metrics = all_metrics[best_idx]
-    print(f"\nBest model: {best_name} (macroF1={best_metrics['macro_f1']:.3f})")
+    best_val_m = val_metrics[best_key]
+    print(f"\nBest model (by val macro-F1): {best_name} (val macroF1={best_val_m['macro_f1']:.3f})")
+
+    # Final evaluation on held-out test set
+    print(f"\n{'=' * 80}")
+    print("TEST SET METRICS (held-out, final evaluation)")
+    print(f"{'=' * 80}")
+
+    test_metrics = {}
+    test_preds = {}
+    for name, key in zip(method_names, keys):
+        preds = models[key].predict(X_test)
+        m = compute_metrics(y_test, preds)
+        test_metrics[key] = m
+        test_preds[key] = preds
+        print(f"  {name:<16} acc={m['accuracy']:.3f}  macroF1={m['macro_f1']:.3f}  "
+              f"mob P/R/F1={m['mobbing_precision']:.3f}/"
+              f"{m['mobbing_recall']:.3f}/{m['mobbing_f1']:.3f}  "
+              f"none P/R/F1={m['none_precision']:.3f}/"
+              f"{m['none_recall']:.3f}/{m['none_f1']:.3f}")
+
+    best_test_m = test_metrics[best_key]
+    print(f"\nBest model: {best_name}")
+    print(f"  Validation macroF1: {best_val_m['macro_f1']:.3f}")
+    print(f"  Test macroF1:        {best_test_m['macro_f1']:.3f}")
 
     # Save artifacts
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    best_key = ["logistic", "svm", "knn"][best_idx]
+    # Confusion matrix for best model (test set)
     best_cm = RESULTS_DIR / f"best_model_confusion_dinov3_{size_key}.png"
-    plot_confusion(y_test, all_preds[best_key], f"Confusion — {backbone_name} {best_name}", best_cm)
+    plot_confusion(y_test, test_preds[best_key],
+                   f"Confusion (test) — {backbone_name} {best_name}", best_cm)
     print(f"  Confusion matrix: {best_cm}")
 
+    # Comparison bar chart — validation metrics
     comp_path = RESULTS_DIR / f"comparison_bar_dinov3_{size_key}.png"
-    plot_comparison(method_names, all_metrics, comp_path, f"{backbone_name} — Method Comparison")
+    plot_comparison(method_names, [val_metrics[k] for k in keys], comp_path,
+                    f"{backbone_name} — Method Comparison (val)")
     print(f"  Comparison chart: {comp_path}")
 
-    # Save best sklearn model
-    joblib.dump(models[best_key], MODELS_DIR / f"dinov3_{size_key}_best.joblib")
-    joblib.dump(models["logistic"], MODELS_DIR / f"dinov3_{size_key}_logistic.joblib")
-    joblib.dump(models["svm"], MODELS_DIR / f"dinov3_{size_key}_svm.joblib")
+    # Save best sklearn model (retrained on train+val for deployment)
+    if best_key == "logistic":
+        deploy = LogisticRegression(max_iter=2000, class_weight="balanced",
+                                    solver="lbfgs", random_state=RANDOM_SEED)
+    elif best_key == "svm":
+        deploy = SVC(kernel="linear", class_weight="balanced", random_state=RANDOM_SEED)
+    else:
+        deploy = KNeighborsClassifier(n_neighbors=5, metric="cosine", weights="distance")
+    deploy.fit(X_trainval, y_trainval)
+    joblib.dump(deploy, MODELS_DIR / f"dinov3_{size_key}_best.joblib")
+    print(f"  Saved best model (retrained on train+val): dinov3_{size_key}_best.joblib")
+
+    # Also save logistic + svm regardless
+    lr_deploy = LogisticRegression(max_iter=2000, class_weight="balanced",
+                                   solver="lbfgs", random_state=RANDOM_SEED)
+    lr_deploy.fit(X_trainval, y_trainval)
+    joblib.dump(lr_deploy, MODELS_DIR / f"dinov3_{size_key}_logistic.joblib")
+    svm_deploy = SVC(kernel="linear", class_weight="balanced", random_state=RANDOM_SEED)
+    svm_deploy.fit(X_trainval, y_trainval)
+    joblib.dump(svm_deploy, MODELS_DIR / f"dinov3_{size_key}_svm.joblib")
     print(f"  Models saved to: {MODELS_DIR}")
 
     # Full report
@@ -236,27 +295,50 @@ def main():
         f.write(f"Backbone: {backbone_name} (timm, frozen)\n")
         f.write(f"Embedding dim: {X.shape[1]}\n")
         f.write(f"Dataset: 1690 images (101 mobbing + 1589 none)\n")
-        f.write(f"Split: 80/20 stratified (seed={RANDOM_SEED})\n")
+        f.write(f"Split: 75/15/15 stratified (train/val/test, seed={RANDOM_SEED})\n")
+        f.write(f"  Train: {len(y_train)} (mobbing={np.sum(y_train==0)}, none={np.sum(y_train==1)})\n")
+        f.write(f"  Val:   {len(y_val)} (mobbing={np.sum(y_val==0)}, none={np.sum(y_val==1)})\n")
+        f.write(f"  Test:  {len(y_test)} (mobbing={np.sum(y_test==0)}, none={np.sum(y_test==1)})\n")
         f.write(f"Class weighting: balanced (inverse frequency)\n\n")
+
+        f.write("VALIDATION SET METRICS (model selection)\n")
         f.write(f"{'Method':<16} {'Accuracy':>8} {'MacroF1':>8} "
                 f"{'Mob P':>6} {'Mob R':>6} {'Mob F1':>6} "
                 f"{'None P':>6} {'None R':>6} {'None F1':>6}\n")
         f.write("-" * 80 + "\n")
-        for name, m in zip(method_names, all_metrics):
+        for name in method_names:
+            key = {"Logistic Reg": "logistic", "Linear SVM": "svm", "kNN (k=5)": "knn"}[name]
+            m = val_metrics[key]
             f.write(f"{name:<16} {m['accuracy']:>8.3f} {m['macro_f1']:>8.3f} "
                     f"{m['mobbing_precision']:>6.3f} {m['mobbing_recall']:>6.3f} {m['mobbing_f1']:>6.3f} "
                     f"{m['none_precision']:>6.3f} {m['none_recall']:>6.3f} {m['none_f1']:>6.3f}\n")
         f.write("-" * 80 + "\n")
-        f.write(f"\nBest: {best_name} (macroF1={best_metrics['macro_f1']:.3f})\n")
+        f.write(f"\nBest (by val macroF1): {best_name} (val macroF1={best_val_m['macro_f1']:.3f})\n\n")
 
-        for name, key in zip(method_names, ["logistic", "svm", "knn"]):
-            preds = all_preds[key]
+        f.write("TEST SET METRICS (final, held-out)\n")
+        f.write(f"{'Method':<16} {'Accuracy':>8} {'MacroF1':>8} "
+                f"{'Mob P':>6} {'Mob R':>6} {'Mob F1':>6} "
+                f"{'None P':>6} {'None R':>6} {'None F1':>6}\n")
+        f.write("-" * 80 + "\n")
+        for name, key in zip(method_names, keys):
+            m = test_metrics[key]
+            f.write(f"{name:<16} {m['accuracy']:>8.3f} {m['macro_f1']:>8.3f} "
+                    f"{m['mobbing_precision']:>6.3f} {m['mobbing_recall']:>6.3f} {m['mobbing_f1']:>6.3f} "
+                    f"{m['none_precision']:>6.3f} {m['none_recall']:>6.3f} {m['none_f1']:>6.3f}\n")
+        f.write("-" * 80 + "\n")
+        f.write(f"\nBest model: {best_name} "
+                f"(val macroF1={best_val_m['macro_f1']:.3f}, "
+                f"test macroF1={best_test_m['macro_f1']:.3f})\n")
+
+        # Confusion matrices (test set)
+        for name, key in zip(method_names, keys):
+            preds = test_preds[key]
             cm = confusion_matrix(y_test, preds)
-            f.write(f"\n{name} confusion matrix (rows=actual, cols=predicted):\n")
+            f.write(f"\n{name} confusion matrix (test, rows=actual, cols=predicted):\n")
             f.write(f"  {'':>10} {'mobbing':>8} {'none':>8}\n")
             f.write(f"  {'mobbing':>10} {cm[0,0]:>8} {cm[0,1]:>8}\n")
             f.write(f"  {'none':>10} {cm[1,0]:>8} {cm[1,1]:>8}\n")
-            f.write(f"\n{name} — classification report:\n")
+            f.write(f"\n{name} — classification report (test set):\n")
             f.write(classification_report(y_test, preds, target_names=LABEL_NAMES, zero_division=0))
 
     print(f"  Evaluation report: {report_path}")

@@ -39,6 +39,16 @@ Images were sourced from iNaturalist (Creative Commons-licensed via API), Wikime
 
 All images were manually reviewed. Non-bird images flagged by BioCLIP zero-shot classification were removed from the `none` folder (bones, droppings, mammals, plants, insects). Thirty-six images originally classified as mobbing were reclassified to `none` after manual inspection.
 
+### Dataset Split
+
+We use a stratified 75/15/15 train/validation/test split (seed=42): 75% for training, 15% as a held-out validation set for model selection, and 15% as a final test set for reporting generalization performance. The validation set is used to select the best classification head per backbone — the test set is never used for any model selection decisions, ensuring an honest estimate of generalization performance. The same split and seed are used across all backbones for comparability.
+
+| Split       | Total | Mobbing | None |
+|-------------|-------|---------|------|
+| Train       | 1,182 | 71      | 1,111 |
+| Validation  | 254   | 15      | 239   |
+| Test        | 254   | 15      | 239   |
+
 ### Foundation Models
 
 We compared two foundation model families as frozen visual feature extractors:
@@ -85,20 +95,19 @@ This zero-shot approach requires no labeled species data and no training — the
 
 #### Cross-Model Comparison
 
-The best overall model was **BioCLIP 2.5 + Linear SVM**, achieving 98.5% accuracy, 0.935 macro-F1, and 0.878 mobbing F1:
+The best overall model was **BioCLIP 2.5 + Linear SVM**, achieving 98.8% accuracy, 0.948 macro-F1, and 0.903 mobbing F1 on the held-out test set. Model selection was performed on the validation set (val macro-F1=0.965); the table below shows final test-set metrics:
 
-| Backbone      | Head            | Dim  | Accuracy | Macro-F1 | Mobbing F1 | None F1 |
-|---------------|-----------------|------|----------|----------|------------|---------|
-| BioCLIP 2.5   | Zero-shot       | 1024 | 0.449    | 0.375    | 0.160      | 0.589   |
-| BioCLIP 2.5   | Logistic Reg    | 1024 | 0.970    | 0.883    | 0.783      | 0.984   |
-| **BioCLIP 2.5**   | **Linear SVM**      | **1024** | **0.985**    | **0.935**    | **0.878**      | **0.992**   |
-| BioCLIP 2.5   | kNN (k=5)       | 1024 | 0.970    | 0.845    | 0.706      | 0.984   |
-| DINOv3 Large  | Logistic Reg    | 1024 | 0.941    | 0.792    | 0.615      | 0.968   |
-| DINOv3 Large  | Linear SVM      | 1024 | 0.953    | 0.821    | 0.667      | 0.975   |
-| DINOv3 Large  | kNN (k=5)       | 1024 | 0.970    | 0.845    | 0.706      | 0.984   |
-| DINOv3 Small  | Logistic Reg    | 384  | 0.902    | 0.711    | 0.476      | 0.946   |
-| DINOv3 Small  | Linear SVM      | 384  | 0.956    | 0.835    | 0.694      | 0.976   |
-| DINOv3 Small  | kNN (k=5)       | 384  | 0.967    | 0.843    | 0.703      | 0.983   |
+| Backbone      | Head            | Dim  | Val F1 | Test Accuracy | Test Macro-F1 | Mobbing F1 | None F1 |
+|---------------|-----------------|------|--------|--------------|---------------|------------|---------|
+| BioCLIP 2.5   | Logistic Reg    | 1024 | 0.919  | 0.976        | 0.905         | 0.824      | 0.987   |
+| **BioCLIP 2.5**   | **Linear SVM**      | **1024** | **0.965**  | **0.988**        | **0.948**         | **0.903**      | **0.994**   |
+| BioCLIP 2.5   | kNN (k=5)       | 1024 | 0.841  | 0.976        | 0.869         | 0.750      | 0.988   |
+| DINOv3 Large  | Logistic Reg    | 1024 | 0.819  | 0.945        | 0.801         | 0.632      | 0.970   |
+| DINOv3 Large  | Linear SVM      | 1024 | 0.880  | 0.961        | 0.842         | 0.706      | 0.979   |
+| DINOv3 Large  | kNN (k=5)       | 1024 | 0.878  | 0.965        | 0.776         | 0.571      | 0.982   |
+| DINOv3 Small  | Logistic Reg    | 384  | 0.704  | 0.906        | 0.724         | 0.500      | 0.948   |
+| DINOv3 Small  | Linear SVM      | 384  | 0.777  | 0.953        | 0.829         | 0.684      | 0.974   |
+| DINOv3 Small  | kNN (k=5)       | 384  | 0.853  | 0.961        | 0.762         | 0.545      | 0.979   |
 
 </br>
 
@@ -108,12 +117,12 @@ The best overall model was **BioCLIP 2.5 + Linear SVM**, achieving 98.5% accurac
 
 #### Confusion Matrices
 
-The confusion matrix for the best model (BioCLIP 2.5 + Linear SVM) on the 338-image test set shows strong performance on both classes — 18 of 20 mobbing images correctly detected (90% recall), with only 3 false positives among 318 `none` images (99.1% specificity):
+The confusion matrix for the best model (BioCLIP 2.5 + Linear SVM) on the 254-image test set shows strong performance on both classes — 14 of 15 mobbing images correctly detected (93.3% recall), with only 2 false positives among 239 `none` images (99.2% specificity):
 
 ```
                 mobbing    none
-     mobbing        18        2
-        none          3      315
+     mobbing        14        1
+        none          2      237
 ```
 
 </br>
@@ -132,17 +141,17 @@ A comprehensive view of all backbone x head combinations reveals consistent patt
 
 #### Key Findings
 
-1. **BioCLIP 2.5 dominates DINOv3 on mobbing detection.** BioCLIP's best macro-F1 (0.935) exceeds DINOv3 Large's best (0.845) by 9 points. Despite BioCLIP being trained on species captions rather than behavioral descriptions, its biologically pretrained visual features separate mobbing from non-mobbing better than DINOv3's general-purpose self-supervised features. This suggests bird images contain taxonomic-visual cues correlated with behavioral context — species that participate in mobbing (corvids, raptors, small passerines) may be visually distinctive in BioCLIP's embedding space.
+1. **BioCLIP 2.5 dominates DINOv3 on mobbing detection.** BioCLIP's best test macro-F1 (0.948) exceeds DINOv3 Large's best (0.842) by over 10 points. Despite BioCLIP being trained on species captions rather than behavioral descriptions, its biologically pretrained visual features separate mobbing from non-mobbing better than DINOv3's general-purpose self-supervised features. This suggests bird images contain taxonomic-visual cues correlated with behavioral context — species that participate in mobbing (corvids, raptors, small passerines) may be visually distinctive in BioCLIP's embedding space.
 
 2. **Linear SVM is the best classification head.** BioCLIP embeddings are largely linearly separable — a simple linear decision boundary outperforms both logistic regression and kNN. The SVM model is only 1.7 MB, making it trivially small to package for edge deployment.
 
-3. **Zero-shot classification is poor (44.9% accuracy, 0.375 macro-F1).** BioCLIP's text encoder was trained on taxonomic captions, not behavior descriptions. Hand-authored behavior prompts ("birds mobbing a predator," "songbirds mobbing an owl") do not produce useful zero-shot prototypes — the model over-predicts mobbing heavily (982 false positives). This confirms that supervised training on labeled examples is necessary for behavioral classification, even with a biologically pretrained foundation model.
+3. **Zero-shot classification is poor (44.9% accuracy, 0.375 macro-F1).** BioCLIP's text encoder was trained on taxonomic captions, not behavior descriptions. Hand-authored behavior prompts ("birds mobbing a predator," "songbirds mobbing an owl") do not produce useful zero-shot prototypes — the model over-predicts mobbing heavily (982 false positives). This confirms that supervised training on labeled examples is necessary for behavioral classification, even with a biologically pretrained foundation model. Note that zero-shot is evaluated on the full dataset (no train/test split needed) since it requires no training.
 
-4. **DINOv3 Large does not justify its cost over Small.** Both DINOv3 sizes achieve the same ~0.845 macro-F1 (with kNN), but Large requires 300M parameters (23-minute extraction) versus Small's 22M parameters (6-minute extraction). For edge deployment where compute and memory are constrained, DINOv3 Small is the clear choice if DINOv3 is used.
+4. **DINOv3 Large does not justify its cost over Small.** DINOv3 Small's best test macro-F1 (0.829 with Linear SVM) is comparable to DINOv3 Large's best (0.842), but Large requires 300M parameters (23-minute extraction) versus Small's 22M parameters (6-minute extraction). For edge deployment where compute and memory are constrained, DINOv3 Small is the clear choice if DINOv3 is used.
 
-5. **kNN is surprisingly competitive for DINOv3 but not for BioCLIP.** DINOv3's self-supervised contrastive training creates tight local neighborhoods that kNN exploits (0.845 for both sizes), matching its SVM performance. In BioCLIP space, kNN drops to 0.845 versus the SVM's 0.935 — BioCLIP's global linear structure favors a learned decision boundary over nearest-neighbor voting.
+5. **kNN is competitive on validation but degrades on the test set.** DINOv3 Small's kNN achieved the highest val macro-F1 (0.853) among DINOv3 Small heads, but dropped to 0.762 on the test set — suggesting overfitting to the validation set's local neighborhood structure. BioCLIP's global linear structure consistently favors a learned decision boundary (SVM) over nearest-neighbor voting.
 
-6. **Mobbing precision is the key weakness for DINOv3.** All DINOv3 configurations produce more false positives than BioCLIP's Linear SVM (12-28 false positives vs. 3), limiting their practical utility for mobbing detection where false alerts reduce trust in the system.
+6. **Mobbing precision is the key weakness for DINOv3.** All DINOv3 configurations produce more false positives than BioCLIP's Linear SVM (7-21 false positives vs. 2), limiting their practical utility for mobbing detection where false alerts reduce trust in the system.
 
 ### Edge Deployment
 

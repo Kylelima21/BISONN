@@ -1,61 +1,75 @@
 BISONN Phase 3b — DINOv3 Large Classification Head Evaluation
-Date: 2026-07-24 19:26
+Date: 2026-07-27 19:41
 Backbone: DINOv3 Large (timm, frozen)
 Embedding dim: 1024
 Dataset: 1690 images (101 mobbing + 1589 none)
-Split: 80/20 stratified (seed=42)
+Split: 75/15/15 stratified (train/val/test, seed=42)
+  Train: 1182 (mobbing=71, none=1111)
+  Val:   254 (mobbing=15, none=239)
+  Test:  254 (mobbing=15, none=239)
 Class weighting: balanced (inverse frequency)
 
+VALIDATION SET METRICS (model selection)
 Method           Accuracy  MacroF1  Mob P  Mob R Mob F1 None P None R None F1
 --------------------------------------------------------------------------------
-Logistic Reg        0.941    0.792  0.500  0.800  0.615  0.987  0.950  0.968
-Linear SVM          0.953    0.821  0.571  0.800  0.667  0.987  0.962  0.975
-kNN (k=5)           0.970    0.845  0.857  0.600  0.706  0.975  0.994  0.984
+Logistic Reg        0.949    0.819  0.542  0.867  0.667  0.991  0.954  0.972
+Linear SVM          0.969    0.880  0.667  0.933  0.778  0.996  0.971  0.983
+kNN (k=5)           0.976    0.878  0.909  0.667  0.769  0.979  0.996  0.988
 --------------------------------------------------------------------------------
 
-Best: kNN (k=5) (macroF1=0.845)
+Best (by val macroF1): Linear SVM (val macroF1=0.880)
 
-Logistic Reg confusion matrix (rows=actual, cols=predicted):
+TEST SET METRICS (final, held-out)
+Method           Accuracy  MacroF1  Mob P  Mob R Mob F1 None P None R None F1
+--------------------------------------------------------------------------------
+Logistic Reg        0.945    0.801  0.522  0.800  0.632  0.987  0.954  0.970
+Linear SVM          0.961    0.842  0.632  0.800  0.706  0.987  0.971  0.979
+kNN (k=5)           0.965    0.776  1.000  0.400  0.571  0.964  1.000  0.982
+--------------------------------------------------------------------------------
+
+Best model: Linear SVM (val macroF1=0.880, test macroF1=0.842)
+
+Logistic Reg confusion matrix (test, rows=actual, cols=predicted):
               mobbing     none
-     mobbing       16        4
-        none       16      302
+     mobbing       12        3
+        none       11      228
 
-Logistic Reg — classification report:
+Logistic Reg — classification report (test set):
               precision    recall  f1-score   support
 
-     mobbing       0.50      0.80      0.62        20
-        none       0.99      0.95      0.97       318
+     mobbing       0.52      0.80      0.63        15
+        none       0.99      0.95      0.97       239
 
-    accuracy                           0.94       338
-   macro avg       0.74      0.87      0.79       338
-weighted avg       0.96      0.94      0.95       338
+    accuracy                           0.94       254
+   macro avg       0.75      0.88      0.80       254
+weighted avg       0.96      0.94      0.95       254
 
-Linear SVM confusion matrix (rows=actual, cols=predicted):
+Linear SVM confusion matrix (test, rows=actual, cols=predicted):
               mobbing     none
-     mobbing       16        4
-        none       12      306
+     mobbing       12        3
+        none        7      232
 
-Linear SVM — classification report:
+Linear SVM — classification report (test set):
               precision    recall  f1-score   support
 
-     mobbing       0.57      0.80      0.67        20
-        none       0.99      0.96      0.97       318
+     mobbing       0.63      0.80      0.71        15
+        none       0.99      0.97      0.98       239
 
-    accuracy                           0.95       338
-   macro avg       0.78      0.88      0.82       338
-weighted avg       0.96      0.95      0.96       338
+    accuracy                           0.96       254
+   macro avg       0.81      0.89      0.84       254
+weighted avg       0.97      0.96      0.96       254
 
-kNN (k=5) confusion matrix (rows=actual, cols=predicted):
+kNN (k=5) confusion matrix (test, rows=actual, cols=predicted):
               mobbing     none
-     mobbing       12        8
-        none        2      316
+     mobbing        6        9
+        none        0      239
 
-kNN (k=5) — classification report:
+kNN (k=5) — classification report (test set):
               precision    recall  f1-score   support
 
-     mobbing       0.86      0.60      0.71        20
-        none       0.98      0.99      0.98       318
+     mobbing       1.00      0.40      0.57        15
+        none       0.96      1.00      0.98       239
 
-    accuracy                           0.97       338
-   macro avg       0.92      0.80      0.85       338
-weighted avg       0.97      0.97      0.97       338
+    accuracy                           0.96       254
+   macro avg       0.98      0.70      0.78       254
+weighted avg       0.97      0.96      0.96       254

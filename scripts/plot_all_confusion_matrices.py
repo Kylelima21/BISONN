@@ -2,14 +2,14 @@
 """
 Phase 3d: Confusion matrix grid for every backbone x head combination.
 
-Produces a single figure with all confusion matrices:
+Produces a single figure with all confusion matrices (test set):
   - 3 backbones (BioCLIP 2.5, DINOv3 Large, DINOv3 Small)
   - 3 supervised heads each (Logistic Reg, Linear SVM, kNN)
   - 1 zero-shot (BioCLIP 2.5 only)
   = 10 subplots in a 4x3 grid (zero-shot gets the extra slot)
 
-Reuses the same train/test split, seeds, and class-weighting as
-train_and_evaluate.py and compare_models.py so numbers match.
+Three-way split: 75% train / 15% validation / 15% test (seed=42, stratified).
+Confusion matrices are on the held-out test set.
 
 Usage:
   CUDA_VISIBLE_DEVICES='' python3 scripts/plot_all_confusion_matrices.py
@@ -45,7 +45,8 @@ RESULTS_DIR = DATA_DIR / "results"
 
 LABEL_NAMES = ["mobbing", "none"]
 RANDOM_SEED = 42
-TEST_SIZE = 0.2
+VAL_SIZE = 0.15 / 0.85
+TEST_SIZE = 0.15
 
 BACKBONES = [
     {
@@ -87,18 +88,10 @@ def plot_cm(ax, y_true, y_pred, title):
 
 def main():
     print("=" * 60)
-    print("BISONN — All Confusion Matrices")
+    print("BISONN — All Confusion Matrices (75/15/15 split, test set)")
     print("=" * 60)
 
     labels = np.load(DATA_DIR / "labels_bisonn.npy")
-
-    # Collect (row_label, col_label, y_true, y_pred) for each subplot
-    # Grid: rows = backbones (+ zero-shot row for BioCLIP), cols = heads
-    # Row 0: BioCLIP 2.5 — Zero-shot, Logistic, SVM, kNN  (4 entries)
-    # Row 1: DINOv3 Large — (empty), Logistic, SVM, kNN   (3 entries)
-    # Row 2: DINOv3 Small — (empty), Logistic, SVM, kNN   (3 entries)
-    # We use a 3-row x 4-col grid; zero-shot fills row 0 col 0,
-    # DINOv3 rows start at col 1.
 
     all_cms = []  # (row, col, title, y_true, y_pred)
 
@@ -139,7 +132,7 @@ def main():
 
         all_cms.append((0, 0, "BioCLIP 2.5\nZero-shot", y_full, zs_preds))
 
-    # ── Supervised heads for each backbone ──────────────────────────────
+    # ── Supervised heads for each backbone (test set) ───────────────────
     for bb_row, bb in enumerate(BACKBONES):
         bundle_path = bb["bundle"]
         if not bundle_path.exists():
@@ -151,8 +144,13 @@ def main():
         X = bundle.features
         y = labels
 
-        X_train, X_test, y_train, y_test = train_test_split(
+        # Three-way split: 75/15/15
+        X_trainval, X_test, y_trainval, y_test = train_test_split(
             X, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_SEED,
+        )
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_trainval, y_trainval, test_size=VAL_SIZE, stratify=y_trainval,
+            random_state=RANDOM_SEED,
         )
 
         # Logistic regression
@@ -163,7 +161,7 @@ def main():
         lr_pred = lr.predict(X_test)
         all_cms.append((
             bb_row,
-            1 if bb_row == 0 else 1,
+            1,
             f"{bb['name']}\nLogistic Reg",
             y_test, lr_pred,
         ))
@@ -190,7 +188,7 @@ def main():
 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, 12))
     fig.suptitle(
-        "BISONN — Confusion Matrices for All Backbone x Head Combinations",
+        "BISONN — Confusion Matrices for All Backbone x Head Combinations (test set, 75/15/15 split)",
         fontsize=14, fontweight="bold", y=0.98,
     )
 

@@ -5,9 +5,10 @@
 
 A Sage/Waggle edge plugin that detects **bird mobbing behavior** and identifies
 **species** from camera images using BioCLIP 2.5 embeddings. Behavior is
-classified by a frozen Linear SVM (98.5% accuracy, 0.935 macro-F1). Species
-is identified zero-shot via cosine similarity to 30 curated North American
-bird text prompts — a task BioCLIP was explicitly trained for on TreeOfLife-200M.
+classified by a frozen Linear SVM (98.8% accuracy, 0.948 macro-F1 on held-out
+test set). Species is identified zero-shot via cosine similarity to 30 curated
+North American bird text prompts — a task BioCLIP was explicitly trained for on
+TreeOfLife-200M.
 
 <br/>
 

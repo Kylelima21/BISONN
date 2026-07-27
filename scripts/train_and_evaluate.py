@@ -73,7 +73,8 @@ LABEL_NAMES_PATH = DATA_DIR / "label_names.json"
 PROMPTS_PATH = DATA_DIR / "behavior_prompts.json"
 
 RANDOM_SEED = 42
-TEST_SIZE = 0.2
+VAL_SIZE = 0.15 / 0.85  # 15% of total → fraction of the 85% remainder
+TEST_SIZE = 0.15         # 15% of total, held out for final evaluation
 
 LABEL_NAMES = ["mobbing", "none"]
 
@@ -205,7 +206,7 @@ def run_zero_shot(img_features, txt_features, prompts_data, y_true):
 
 # ── Method 2: Logistic regression ──────────────────────────────────────
 
-def run_logistic_regression(X_train, y_train, X_test, y_test):
+def run_logistic_regression(X_train, y_train, X_eval, y_eval):
     print("\n[2/5] Logistic regression (linear probe, class-weighted)...")
     clf = LogisticRegression(
         max_iter=2000,
@@ -214,15 +215,15 @@ def run_logistic_regression(X_train, y_train, X_test, y_test):
         random_state=RANDOM_SEED,
     )
     clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
-    m = compute_metrics(y_test, y_pred)
+    y_pred = clf.predict(X_eval)
+    m = compute_metrics(y_eval, y_pred)
     print(f"  {format_metrics(m)}")
     return m, y_pred, clf
 
 
 # ── Method 3: Linear SVM ────────────────────────────────────────────────
 
-def run_svm(X_train, y_train, X_test, y_test):
+def run_svm(X_train, y_train, X_eval, y_eval):
     print("\n[3/5] Linear SVM (class-weighted)...")
     clf = SVC(
         kernel="linear",
@@ -230,15 +231,15 @@ def run_svm(X_train, y_train, X_test, y_test):
         random_state=RANDOM_SEED,
     )
     clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
-    m = compute_metrics(y_test, y_pred)
+    y_pred = clf.predict(X_eval)
+    m = compute_metrics(y_eval, y_pred)
     print(f"  {format_metrics(m)}")
     return m, y_pred, clf
 
 
 # ── Method 4: kNN ───────────────────────────────────────────────────────
 
-def run_knn(X_train, y_train, X_test, y_test, k=5):
+def run_knn(X_train, y_train, X_eval, y_eval, k=5):
     print(f"\n[4/5] kNN (k={k}, cosine, distance-weighted)...")
     clf = KNeighborsClassifier(
         n_neighbors=k,
@@ -246,8 +247,8 @@ def run_knn(X_train, y_train, X_test, y_test, k=5):
         weights="distance",
     )
     clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
-    m = compute_metrics(y_test, y_pred)
+    y_pred = clf.predict(X_eval)
+    m = compute_metrics(y_eval, y_pred)
     print(f"  {format_metrics(m)}")
     return m, y_pred, clf
 
@@ -255,7 +256,7 @@ def run_knn(X_train, y_train, X_test, y_test, k=5):
 # ── Method 5: Small MLP ─────────────────────────────────────────────────
 
 
-def run_mlp(X_train, y_train, X_test, y_test, epochs=50, lr=1e-3, hidden_dim=256):
+def run_mlp(X_train, y_train, X_eval, y_eval, epochs=50, lr=1e-3, hidden_dim=256):
     """Train a 2-layer MLP. Skipped unless BISONN_ENABLE_MLP=1 is set.
 
     torch 2.13+cu130 on Blackwell hangs on CUDA init even with
@@ -274,7 +275,7 @@ def run_mlp(X_train, y_train, X_test, y_test, epochs=50, lr=1e-3, hidden_dim=256
 
     X_tr = torch.as_tensor(X_train, dtype=torch.float32)
     y_tr = torch.as_tensor(y_train, dtype=torch.long)
-    X_te = torch.as_tensor(X_test, dtype=torch.float32)
+    X_te = torch.as_tensor(X_eval, dtype=torch.float32)
 
     # Class weights: inverse frequency
     n_mob = (y_train == 0).sum()
@@ -308,7 +309,7 @@ def run_mlp(X_train, y_train, X_test, y_test, epochs=50, lr=1e-3, hidden_dim=256
     model.eval()
     with torch.no_grad():
         y_pred = model(X_te).argmax(dim=1).numpy()
-    m = compute_metrics(y_test, y_pred)
+    m = compute_metrics(y_eval, y_pred)
     print(f"  {format_metrics(m)}")
     return m, y_pred, model
 
@@ -337,13 +338,18 @@ def main():
     print(f"  Labels: mobbing={np.sum(y==0)}, none={np.sum(y==1)}")
     print()
 
-    # 2. Stratified split
-    X_train, X_test, y_train, y_test = train_test_split(
+    # 2. Stratified three-way split: 75% train / 15% validation / 15% test
+    X_trainval, X_test, y_trainval, y_test = train_test_split(
         X, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_SEED,
     )
-    print(f"Stratified split ({1-TEST_SIZE:.0%}/{TEST_SIZE:.0%}):")
-    print(f"  Train: {len(y_train)} (mobbing={np.sum(y_train==0)}, none={np.sum(y_train==1)})")
-    print(f"  Test:  {len(y_test)} (mobbing={np.sum(y_test==0)}, none={np.sum(y_test==1)})")
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_trainval, y_trainval, test_size=VAL_SIZE, stratify=y_trainval,
+        random_state=RANDOM_SEED,
+    )
+    print(f"Stratified split (75/15/15):")
+    print(f"  Train:      {len(y_train)} (mobbing={np.sum(y_train==0)}, none={np.sum(y_train==1)})")
+    print(f"  Validation: {len(y_val)} (mobbing={np.sum(y_val==0)}, none={np.sum(y_val==1)})")
+    print(f"  Test:       {len(y_test)} (mobbing={np.sum(y_test==0)}, none={np.sum(y_test==1)})")
     print()
 
     # 3. Run all methods
@@ -357,25 +363,25 @@ def main():
     all_metrics.append(zs_metrics)
     all_preds["zero_shot"] = zs_preds
 
-    # 2-5: Supervised methods (use train/test split)
-    lr_metrics, lr_preds, lr_model = run_logistic_regression(X_train, y_train, X_test, y_test)
+    # 2-5: Supervised methods — train on train, evaluate on validation for selection
+    lr_metrics, lr_preds, lr_model = run_logistic_regression(X_train, y_train, X_val, y_val)
     method_names.append("Logistic Reg")
     all_metrics.append(lr_metrics)
     all_preds["logistic"] = lr_preds
 
-    svm_metrics, svm_preds, svm_model = run_svm(X_train, y_train, X_test, y_test)
+    svm_metrics, svm_preds, svm_model = run_svm(X_train, y_train, X_val, y_val)
     method_names.append("Linear SVM")
     all_metrics.append(svm_metrics)
     all_preds["svm"] = svm_preds
 
-    knn_metrics, knn_preds, knn_model = run_knn(X_train, y_train, X_test, y_test, k=5)
+    knn_metrics, knn_preds, knn_model = run_knn(X_train, y_train, X_val, y_val, k=5)
     method_names.append("kNN (k=5)")
     all_metrics.append(knn_metrics)
     all_preds["knn"] = knn_preds
 
     # 5. MLP (optional — torch 2.13+cu130 hangs on CPU matmul due to Blackwell
     #    CUDA init. Skipped on this host; can be re-enabled in an NVIDIA container.)
-    mlp_result = run_mlp(X_train, y_train, X_test, y_test)
+    mlp_result = run_mlp(X_train, y_train, X_val, y_val)
     if mlp_result[0] is not None:
         mlp_metrics, mlp_preds, mlp_model = mlp_result
         method_names.append("MLP (256)")
@@ -384,9 +390,10 @@ def main():
     else:
         print("  (MLP skipped — unavailable on this host's torch build)")
 
-    # 4. Summary table
+    # 4. Summary table — validation set metrics (used for model selection)
     print()
     print("=" * 80)
+    print("VALIDATION SET METRICS (used for model selection)")
     print(f"{'Method':<16} {'Accuracy':>8} {'MacroF1':>8} "
           f"{'Mob P':>6} {'Mob R':>6} {'Mob F1':>6} "
           f"{'None P':>6} {'None R':>6} {'None F1':>6}")
@@ -397,62 +404,95 @@ def main():
               f"{m['none_precision']:>6.3f} {m['none_recall']:>6.3f} {m['none_f1']:>6.3f}")
     print("=" * 80)
 
-    # Find best model by macro-F1 (among supervised only)
+    # Find best model by macro-F1 on validation (among supervised only)
     supervised_metrics = all_metrics[1:]  # exclude zero-shot
     supervised_names = method_names[1:]
+    supervised_keys = ["logistic", "svm", "knn"]
+    if "mlp" in all_preds:
+        supervised_keys.append("mlp")
     best_idx = np.argmax([m["macro_f1"] for m in supervised_metrics])
     best_name = supervised_names[best_idx]
-    best_metrics = supervised_metrics[best_idx]
-    print(f"\nBest supervised model (by macro-F1): {best_name} "
-          f"(macroF1={best_metrics['macro_f1']:.3f})")
+    best_val_metrics = supervised_metrics[best_idx]
+    best_key = supervised_keys[best_idx]
+    print(f"\nBest supervised model (by val macro-F1): {best_name} "
+          f"(val macroF1={best_val_metrics['macro_f1']:.3f})")
+
+    # 5. Final evaluation on held-out test set
+    sklearn_models = {"logistic": lr_model, "svm": svm_model, "knn": knn_model}
+    print(f"\n{'=' * 80}")
+    print("TEST SET METRICS (held-out, final evaluation)")
+    print(f"{'=' * 80}")
+
+    test_metrics_all = {}
+    test_preds_all = {}
+    for name, key in zip(supervised_names, supervised_keys):
+        model = sklearn_models.get(key) or (mlp_model if key == "mlp" else None)
+        if model is None:
+            continue
+        if key == "mlp":
+            import torch as _torch
+            X_te_t = _torch.as_tensor(X_test, dtype=_torch.float32)
+            with _torch.no_grad():
+                test_preds = model(X_te_t).argmax(dim=1).numpy()
+        else:
+            test_preds = model.predict(X_test)
+        m = compute_metrics(y_test, test_preds)
+        test_metrics_all[key] = m
+        test_preds_all[key] = test_preds
+        print(f"  {name:<16} acc={m['accuracy']:.3f}  macroF1={m['macro_f1']:.3f}  "
+              f"mob P/R/F1={m['mobbing_precision']:.3f}/"
+              f"{m['mobbing_recall']:.3f}/{m['mobbing_f1']:.3f}  "
+              f"none P/R/F1={m['none_precision']:.3f}/"
+              f"{m['none_recall']:.3f}/{m['none_f1']:.3f}")
+
+    best_test_metrics = test_metrics_all[best_key]
+    best_test_preds = test_preds_all[best_key]
+    print(f"\nBest model: {best_name}")
+    print(f"  Validation macroF1: {best_val_metrics['macro_f1']:.3f}")
+    print(f"  Test macroF1:        {best_test_metrics['macro_f1']:.3f}")
 
     # 6. Save artifacts
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Map supervised method names to their prediction keys and models
-    sklearn_keys = ["logistic", "svm", "knn"]
-    sklearn_models = {"logistic": lr_model, "svm": svm_model, "knn": knn_model}
-
-    # Confusion matrix for best supervised model
-    best_key = None
-    for i, name in enumerate(supervised_names):
-        if i == best_idx:
-            if name in ("Logistic Reg",):
-                best_key = "logistic"
-            elif name == "Linear SVM":
-                best_key = "svm"
-            elif name.startswith("kNN"):
-                best_key = "knn"
-            elif name.startswith("MLP"):
-                best_key = "mlp"
-            break
-    best_preds = all_preds[best_key]
+    # Confusion matrix for best model (test set)
     best_cm_path = RESULTS_DIR / "best_model_confusion.png"
-    plot_confusion(y_test, best_preds, f"Confusion Matrix — {best_name}", best_cm_path)
+    plot_confusion(y_test, best_test_preds,
+                   f"Confusion Matrix (test) — {best_name}", best_cm_path)
     print(f"  Confusion matrix: {best_cm_path}")
 
-    # Comparison bar chart
+    # Comparison bar chart — validation metrics
     comp_path = RESULTS_DIR / "comparison_bar.png"
     plot_comparison(method_names, all_metrics, comp_path)
     print(f"  Comparison chart: {comp_path}")
 
-    # Save best sklearn model
-    sklearn_models = {"logistic": lr_model, "svm": svm_model, "knn": knn_model}
-    if best_key in sklearn_models:
+    # Save best sklearn model (retrained on train+val for deployment)
+    from sklearn.linear_model import LogisticRegression as LR2
+    from sklearn.svm import SVC as SVC2
+    from sklearn.neighbors import KNeighborsClassifier as KNN2
+    if best_key == "logistic":
+        deploy_model = LR2(max_iter=2000, class_weight="balanced",
+                            solver="lbfgs", random_state=RANDOM_SEED)
+    elif best_key == "svm":
+        deploy_model = SVC2(kernel="linear", class_weight="balanced",
+                             random_state=RANDOM_SEED)
+    elif best_key == "knn":
+        deploy_model = KNN2(n_neighbors=5, metric="cosine", weights="distance")
+    else:
+        deploy_model = None
+
+    if deploy_model is not None:
+        deploy_model.fit(X_trainval, y_trainval)
         model_path = MODELS_DIR / f"{best_key}.joblib"
-        joblib.dump(sklearn_models[best_key], model_path)
-        print(f"  Saved model: {model_path}")
-    elif best_key == "mlp":
-        import torch as _torch
-        model_path = MODELS_DIR / "mlp_weights.pt"
-        _torch.save(mlp_model.state_dict(), model_path)  # type: ignore[union-attr]
+        joblib.dump(deploy_model, model_path)
+        print(f"  Saved model (retrained on train+val): {model_path}")
 
-        print(f"  Saved model: {model_path}")
-
-    # Also save logistic regression regardless (likely deploy choice — simplest)
+    # Also save logistic regression regardless (simplest deploy candidate)
     if best_key != "logistic":
-        joblib.dump(lr_model, MODELS_DIR / "logistic.joblib")
+        lr_deploy = LR2(max_iter=2000, class_weight="balanced",
+                        solver="lbfgs", random_state=RANDOM_SEED)
+        lr_deploy.fit(X_trainval, y_trainval)
+        joblib.dump(lr_deploy, MODELS_DIR / "logistic.joblib")
         print(f"  Also saved logistic: {MODELS_DIR / 'logistic.joblib'}")
 
     # Full evaluation report
@@ -462,9 +502,13 @@ def main():
         f.write(f"Date: {time.strftime('%Y-%m-%d %H:%M')}\n")
         f.write(f"Model: BioCLIP 2.5 Huge (ViT-H/14, 1024-dim, frozen)\n")
         f.write(f"Dataset: 1690 images (101 mobbing + 1589 none)\n")
-        f.write(f"Split: 80/20 stratified (seed={RANDOM_SEED})\n")
+        f.write(f"Split: 75/15/15 stratified (train/val/test, seed={RANDOM_SEED})\n")
+        f.write(f"  Train: {len(y_train)} (mobbing={np.sum(y_train==0)}, none={np.sum(y_train==1)})\n")
+        f.write(f"  Val:   {len(y_val)} (mobbing={np.sum(y_val==0)}, none={np.sum(y_val==1)})\n")
+        f.write(f"  Test:  {len(y_test)} (mobbing={np.sum(y_test==0)}, none={np.sum(y_test==1)})\n")
         f.write(f"Class imbalance: 1:16 (mobbing:none)\n")
         f.write(f"Class weighting: balanced (inverse frequency)\n\n")
+        f.write("VALIDATION SET METRICS (model selection)\n")
         f.write(f"{'Method':<16} {'Accuracy':>8} {'MacroF1':>8} "
                 f"{'Mob P':>6} {'Mob R':>6} {'Mob F1':>6} "
                 f"{'None P':>6} {'None R':>6} {'None F1':>6}\n")
@@ -474,25 +518,48 @@ def main():
                     f"{m['mobbing_precision']:>6.3f} {m['mobbing_recall']:>6.3f} {m['mobbing_f1']:>6.3f} "
                     f"{m['none_precision']:>6.3f} {m['none_recall']:>6.3f} {m['none_f1']:>6.3f}\n")
         f.write("-" * 80 + "\n")
-        f.write(f"\nBest supervised: {best_name} (macroF1={best_metrics['macro_f1']:.3f})\n\n")
+        f.write(f"\nBest supervised (by val macroF1): {best_name} "
+                f"(val macroF1={best_val_metrics['macro_f1']:.3f})\n\n")
 
-        # Per-method confusion matrices
+        f.write("TEST SET METRICS (final, held-out)\n")
+        f.write(f"{'Method':<16} {'Accuracy':>8} {'MacroF1':>8} "
+                f"{'Mob P':>6} {'Mob R':>6} {'Mob F1':>6} "
+                f"{'None P':>6} {'None R':>6} {'None F1':>6}\n")
+        f.write("-" * 80 + "\n")
+        for name, key in zip(supervised_names, supervised_keys):
+            if key not in test_metrics_all:
+                continue
+            m = test_metrics_all[key]
+            f.write(f"{name:<16} {m['accuracy']:>8.3f} {m['macro_f1']:>8.3f} "
+                    f"{m['mobbing_precision']:>6.3f} {m['mobbing_recall']:>6.3f} {m['mobbing_f1']:>6.3f} "
+                    f"{m['none_precision']:>6.3f} {m['none_recall']:>6.3f} {m['none_f1']:>6.3f}\n")
+        f.write("-" * 80 + "\n")
+        f.write(f"\nBest model: {best_name} "
+                f"(val macroF1={best_val_metrics['macro_f1']:.3f}, "
+                f"test macroF1={best_test_metrics['macro_f1']:.3f})\n\n")
+
+        # Per-method confusion matrices (test set for supervised, full for zero-shot)
         for name, key in zip(method_names, ["zero_shot", "logistic", "svm", "knn", "mlp"]):
-            preds = all_preds[key]
             if key == "zero_shot":
+                preds = all_preds[key]
                 y_true_full = y
-            else:
+            elif key in test_preds_all:
+                preds = test_preds_all[key]
                 y_true_full = y_test
+            else:
+                continue
             cm = confusion_matrix(y_true_full, preds)
             f.write(f"\n{name} confusion matrix (rows=actual, cols=predicted):\n")
             f.write(f"  {'':>10} {'mobbing':>8} {'none':>8}\n")
             f.write(f"  {'mobbing':>10} {cm[0,0]:>8} {cm[0,1]:>8}\n")
             f.write(f"  {'none':>10} {cm[1,0]:>8} {cm[1,1]:>8}\n")
 
-        # Full classification reports for supervised methods
-        for name, key in zip(supervised_names, ["logistic", "svm", "knn", "mlp"]):
-            preds = all_preds[key]
-            f.write(f"\n{name} — full classification report:\n")
+        # Full classification reports for supervised methods (test set)
+        for name, key in zip(supervised_names, supervised_keys):
+            if key not in test_preds_all:
+                continue
+            preds = test_preds_all[key]
+            f.write(f"\n{name} — full classification report (test set):\n")
             f.write(classification_report(y_test, preds, target_names=LABEL_NAMES, zero_division=0))
 
     print(f"  Evaluation report: {report_path}")
