@@ -29,11 +29,11 @@ Sage/Waggle is an edge computing platform that deploys containerized plugins on 
 
 We assembled a labeled dataset of 1,690 bird images for binary classification of mobbing behavior:
 
-| Class    | Count | iNaturalist | Wikimedia Commons | Personal | Total |
-|----------|-------|-------------|--------------------|----------| ----- |
-| mobbing  | —     | 0           | 98                 | 3        | 101   |
-| none     | —     | 78          | 29                 | 1,482    | 1,589 |
-| **Total**|       | **78**      | **127**            | **1,485**| **1,690** |
+| Class    | iNaturalist | Wikimedia Commons | Personal | Total |
+|----------|-------------|--------------------|----------| ----- |
+| mobbing  | 0           | 98                 | 3        | 101   |
+| none     | 78          | 29                 | 1,482    | 1,589 |
+| **Total**| **78**      | **127**            | **1,485**| **1,690** |
 
 Images were sourced from iNaturalist (Creative Commons-licensed via API), Wikimedia Commons, and personal field photography. The `none` class consists of bird images with no mobbing interaction: perched birds, flying birds, foraging birds, and solitary individuals. This serves as the background rejection class. The dataset exhibits significant class imbalance (1:16, mobbing:none), which we address through class-weighted training.
 
