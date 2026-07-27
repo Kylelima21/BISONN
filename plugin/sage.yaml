@@ -1,17 +1,17 @@
 name: "bisonn"
 namespace: "waggle"
 version: "0.1.0"
-description: "Biotic Interactions with Sage Observations using Neural Networks — bird mobbing behavior classifier (BioCLIP 2.5 + Linear SVM)"
+description: "Biotic Interactions with Sage Observations using Neural Networks — bird mobbing behavior classifier + zero-shot species ID (BioCLIP 2.5 + Linear SVM)"
 authors: "Kyle Lima"
 collaborators: ""
 funding: ""
 license: "MIT"
-keywords: "biotic,interaction,mobbing,bioclip,bird,behavior,classification"
-homepage: "https://github.com/kylelima/BISONN"
+keywords: "biotic,interaction,mobbing,bioclip,bird,behavior,classification,species,identification"
+homepage: "https://github.com/Kylelima21/BISONN"
 source:
     architectures:
         - "linux/arm64"
-    url: "https://github.com/kylelima/BISONN"
+    url: "https://github.com/Kylelima21/BISONN"
     branch: "main"
 inputs:
     - id: "stream"
@@ -29,4 +29,4 @@ inputs:
     - id: "upload-image"
       type: "boolean"
 metadata:
-  ontology: biotic.interaction.*
+  ontology: biotic.interaction.*,biotic.species.*
