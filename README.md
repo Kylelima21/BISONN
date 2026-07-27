@@ -10,28 +10,6 @@
 - Do the same for DINOv3 and compare performance among all models
 - Publish the best model to the SGT at the edge
 
-## Sage Plugin (Phase 4-5)
-
-The deployable Sage/Waggle plugin lives at the repo root:
-
-```
-app.py              # Plugin entry point: camera → BioCLIP → SVM → publish
-Dockerfile          # NVIDIA PyTorch 25.08 base (Blackwell sm_110), frozen torch
-sage.yaml           # Sage ECR metadata (name=bisonn, version=0.1.0)
-requirements.txt    # Plugin Python deps (torch frozen from base image)
-models/svm.joblib   # Trained Linear SVM classifier (1.7 MB)
-ecr-meta/           # Science description + icon/image for ECR portal
-```
-
-Build and test on a Thor node:
-```bash
-sudo pluginctl build .
-sudo pluginctl run --name bisonn-test --selector zone=core \
-  --resource limit.memory=16Gi,request.memory=4Gi \
-  <image-ref> -- --image-dir /app/test-images --continuous N
-```
-
-
 <br/>
 
 ## Long Term Goals
