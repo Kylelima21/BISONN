@@ -119,20 +119,6 @@ The best overall model was **BioCLIP 2.5 + Linear SVM**, achieving 98.8% accurac
 
 The confusion matrix for the best model (BioCLIP 2.5 + Linear SVM) on the 254-image test set shows strong performance on both classes — 14 of 15 mobbing images correctly detected (93.3% recall), with only 2 false positives among 239 `none` images (99.2% specificity):
 
-```
-                mobbing    none
-     mobbing        14        1
-        none          2      237
-```
-
-</br>
-
-![Confusion matrix for the best model (BioCLIP 2.5 + Linear SVM).](assets/best_model_confusion.png)
-
-</br>
-
-A comprehensive view of all backbone x head combinations reveals consistent patterns:
-
 </br>
 
 ![Confusion matrices for all 9 combinations (3 backbones x 3 heads) plus BioCLIP zero-shot. BioCLIP 2.5 occupies the top row, DINOv3 Large the middle, DINOv3 Small the bottom.](assets/all_confusion_matrices.png)
@@ -182,17 +168,6 @@ A one-shot test with two sample images confirmed correct behavior:
 Both predictions were published to the Sage data pipeline via `biotic.interaction.bird_mobbing`. The plugin runs on CPU (~2 seconds per image), which is adequate for a 30-second capture interval. GPU access can be requested via `--selector resource.gpu=true` for faster inference.
 
 In addition to behavior classification, the plugin now includes **zero-shot species identification** using BioCLIP's text encoder. A curated list of 30 North American bird species — emphasizing mobbing-relevant corvids (crows, ravens, jays), raptors (hawks, owls, falcons, eagles), and common songbird participants (chickadees, titmice, nuthatches, woodpeckers) — is encoded as text prompts at startup. For each camera snapshot, the image embedding is compared against all species text embeddings via cosine similarity, and the top-3 species predictions are published alongside the behavior classification. This leverages BioCLIP's core strength: unlike behavior classification (where zero-shot fails), species identification is the task BioCLIP was explicitly trained on via TreeOfLife-200M.
-
-### Topics Published
-
-The plugin publishes three Sage data topics per capture cycle:
-
-| Topic                              | Value                      | Meta                                                        |
-|------------------------------------|----------------------------|-------------------------------------------------------------|
-| `biotic.interaction.bird_mobbing`  | 1 (mobbing) or 0 (none)    | camera, label, confidence, species, species_confidence, model |
-| `biotic.species.bird`             | 1 (presence indicator)     | camera, species, species_confidence, species_top3, model     |
-| `biotic.interaction.summary`      | same as bird_mobbing       | camera, label, confidence, species, model (heartbeat)         |
-
 
 ## Future Directions
 
