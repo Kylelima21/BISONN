@@ -18,9 +18,9 @@ Perhaps the greatest remaining challenge in predictive ecology is incorporating 
 
 This project begins to explore the ability of AI to collect biotic interaction data by working with the Sage Grande Testbed and applying a simple example model at the edge. We compare two foundation models (BioCLIP and DINOv3) with a few different classification heads trained on the same data to perform the same task: classify an image to a certain biotic interaction type. We took the top model and published an application on a Sage Node to provide a proof of concept example classifying interactions from images at the edge.
 
-The application, BISONN (Biotic Interactions with Sage Observations using Neural Networks), focuses on detecting **bird mobbing behavior** — a widespread anti-predator interaction in which multiple birds harass or distract a predator. Mobbing is ephemeral, context-dependent, and difficult to observe systematically, making it an ideal candidate for automated, continuous camera-based detection on distributed environmental sensor nodes.
+The application, BISONN (Biotic Interactions with Sage Observations using Neural Networks), focuses on detecting bird mobbing behavior, an  anti-predator interaction in which a single or multiple birds harass a predator. Mobbing occurs year-round though it more common during the breeding season, is context-dependent, and difficult to observe systematically, making it an ideal candidate for automated, continuous camera-based detection on distributed environmental sensor nodes.
 
-Sage/Waggle is an edge computing platform that deploys containerized plugins on networked environmental sensor nodes (Thor blades). Each node runs k3s/Kubernetes and can be equipped with cameras, microphones, and other sensors. Plugins process sensor data locally at the edge and publish results to a cloud data pipeline, enabling real-time monitoring without continuous human oversight.
+Sage/Waggle is an edge computing platform that deploys containerized plugins on networked environmental sensor nodes (Thors). Each node runs k3s/Kubernetes and can be equipped with cameras, microphones, and other sensors. Plugins process sensor data locally at the edge and publish results to a cloud data pipeline, enabling real-time monitoring without continuous human oversight.
 
 
 ## Methods and Results
